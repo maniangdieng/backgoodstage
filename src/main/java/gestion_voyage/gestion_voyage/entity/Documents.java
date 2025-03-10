@@ -33,8 +33,11 @@ public class Documents implements Serializable {
 
     @Column(name = "nom_fichier", nullable = false)
     String nomFichier;
+  @Lob
+  @Column(name = "contenu", nullable = false)
+  byte[] contenu;
 
-    // Association avec VoyageEtude
+  // Association avec VoyageEtude
     @ManyToOne
     @JoinColumn(name = "voyage_etude_id", referencedColumnName = "id", nullable = false)
     VoyageEtude voyageEtude; // Changement de VoyageEtude à voyageEtude

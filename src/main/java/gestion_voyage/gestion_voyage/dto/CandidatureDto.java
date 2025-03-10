@@ -1,6 +1,7 @@
 package gestion_voyage.gestion_voyage.dto;
 import jakarta.validation.constraints.*;
 import lombok.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -36,14 +37,28 @@ public class CandidatureDto {
 
     String commentaire;
 
+  @NotNull(message = "La cohorte est obligatoire")
+  private Long cohorteId; // Ajout du champ cohorteId
+
+  @NotNull(message = "Le personnel est obligatoire")
+  private Long personnelId; // Ajout du champ personnelId
     // Relations avec d'autres DTOs
     CohorteDto cohorte;
     VoyageEtudeDto voyageEtude;
+
+  private  Integer cohorteAnnee;
+  private String personelMatricule;
+
+
 
     @Size(min = 0, message = "La liste des documents ne doit pas être vide")
     private List<DocumentsDto> documents;
 
     PersonnelDto personnel;
+  // Ajout des dates de la cohorte
+  private LocalDate dateOuvertureCohorte;
+  private LocalDate dateClotureCohorte;
+
 
 
 }

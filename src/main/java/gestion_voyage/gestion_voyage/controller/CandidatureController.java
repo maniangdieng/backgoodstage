@@ -2,6 +2,8 @@ package gestion_voyage.gestion_voyage.controller;
 
 
 import gestion_voyage.gestion_voyage.dto.CandidatureDto;
+import gestion_voyage.gestion_voyage.entity.Cohorte;
+import gestion_voyage.gestion_voyage.repository.CohorteRepository;
 import gestion_voyage.gestion_voyage.service.CandidatureService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
@@ -19,10 +21,22 @@ import java.util.List;
 public class CandidatureController {
     @Autowired
     private CandidatureService candidatureService;
+    @Autowired
+    private CohorteRepository cohorteRepository;
 
     // Créer une nouvelle candidature
     @PostMapping
     public ResponseEntity<CandidatureDto> createCandidature(@RequestBody CandidatureDto candidatureDto) {
+      if (candidatureDto.getStatut() == null || candidatureDto.getStatut().isEmpty()) {
+        candidatureDto.setStatut("EN_ATTENTE"); // Valeur par défaut
+      }
+      // Récupérer la cohorte pour obtenir les dates
+      Cohorte cohorte = cohorteRepository.findById(candidatureDto.getCohorteId())
+        .orElseThrow(() -> new RuntimeException("Cohorte non trouvée"));
+
+      // Ajouter les dates de la cohorte au DTO
+      candidatureDto.setDateOuvertureCohorte(cohorte.getDateOuverture());
+      candidatureDto.setDateClotureCohorte(cohorte.getDateClotureDef());
         CandidatureDto createdCandidature = candidatureService.createCandidature(candidatureDto);
         return ResponseEntity.ok(createdCandidature);
     }

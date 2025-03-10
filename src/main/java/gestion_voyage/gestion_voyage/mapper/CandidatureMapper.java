@@ -88,31 +88,37 @@ public class CandidatureMapper {
 
     // Méthode pour transformer l'entité en DTO
     public CandidatureDto toDto(Candidature candidature) {
-        if (candidature == null) return null;
+      if (candidature == null) return null;
 
-        CandidatureDto dto = new CandidatureDto();
-        dto.setId(candidature.getId());
-        dto.setDateDepot(candidature.getDateDepot());
-        dto.setStatut(candidature.getStatut());
-        dto.setDateDebut(candidature.getDateDebut());
-        dto.setDateFin(candidature.getDateFin());
-        dto.setDestination(candidature.getDestination());
-        dto.setCommentaire(candidature.getCommentaire());
+      CandidatureDto dto = new CandidatureDto();
+      dto.setId(candidature.getId());
+      dto.setDateDepot(candidature.getDateDepot());
+      dto.setStatut(candidature.getStatut());
+      dto.setDateDebut(candidature.getDateDebut());
+      dto.setDateFin(candidature.getDateFin());
+      dto.setDestination(candidature.getDestination());
+      dto.setCommentaire(candidature.getCommentaire());
 
-        // Mapping de la cohorte
-        dto.setCohorte(cohorteMapper.toDto(candidature.getCohorte()));
+      // Mapping de la cohorte
+      if (candidature.getCohorte() != null) {
+        dto.setCohorteId(candidature.getCohorte().getId()); // Ajout de l'ID de la cohorte
+        dto.setCohorteAnnee(candidature.getCohorte().getAnnee()); // Ajout de l'année de la cohorte
+      }
 
-        // Mapping du voyage d'étude
-        dto.setVoyageEtude(voyageEtudeMapper.toDto(candidature.getVoyageEtude()));
+      // Mapping du personnel
+      if (candidature.getPersonnel() != null) {
+        dto.setPersonnelId(candidature.getPersonnel().getId()); // Ajout de l'ID du personnel
+        dto.setPersonelMatricule(candidature.getPersonnel().getMatricule()); // Ajout du nom du personnel
+      }
 
-        // Mapping du personnel
-        dto.setPersonnel(personnelMapper.toDto(candidature.getPersonnel()));
+      // Mapping du voyage d'étude
+      dto.setVoyageEtude(voyageEtudeMapper.toDto(candidature.getVoyageEtude()));
 
-        // Mapping des documents
-        dto.setDocuments(candidature.getDocuments().stream()
-                .map(documentsMapper::toDto)
-                .collect(Collectors.toList()));
+      // Mapping des documents
+      dto.setDocuments(candidature.getDocuments().stream()
+        .map(documentsMapper::toDto)
+        .collect(Collectors.toList()));
 
-        return dto;
+      return dto;
     }
 }

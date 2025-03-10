@@ -42,7 +42,7 @@ public class Candidature implements Serializable {
     String commentaire;
 
     // Relations avec d'autres entités
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "cohorte_id")
     Cohorte cohorte;
 
@@ -54,7 +54,7 @@ public class Candidature implements Serializable {
     @OneToMany(mappedBy = "candidature", cascade = CascadeType.ALL, orphanRemoval = true)
     List<Documents> documents;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "personnel_id")
     Personnel personnel;
 }

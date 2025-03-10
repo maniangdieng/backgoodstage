@@ -41,4 +41,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         body.put("message", "Une erreur interne est survenue. Veuillez réessayer plus tard.");
         return new ResponseEntity<>(body, HttpStatus.INTERNAL_SERVER_ERROR);
     }
+  @ExceptionHandler(RuntimeException.class)
+  public ResponseEntity<ErrorResponse> handleRuntimeException(RuntimeException ex) {
+    ErrorResponse errorResponse = new ErrorResponse(ex.getMessage());
+    return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
+  }
 }
