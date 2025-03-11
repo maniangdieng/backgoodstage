@@ -105,11 +105,7 @@ public class CandidatureMapper {
         dto.setCohorteAnnee(candidature.getCohorte().getAnnee()); // Ajout de l'année de la cohorte
       }
 
-      // Mapping du personnel
-      if (candidature.getPersonnel() != null) {
-        dto.setPersonnelId(candidature.getPersonnel().getId()); // Ajout de l'ID du personnel
-        dto.setPersonelMatricule(candidature.getPersonnel().getMatricule()); // Ajout du nom du personnel
-      }
+
 
       // Mapping du voyage d'étude
       dto.setVoyageEtude(voyageEtudeMapper.toDto(candidature.getVoyageEtude()));

@@ -144,6 +144,12 @@ public class CandidatureServiceImpl implements CandidatureService {
     dto.setDestination(candidature.getDestination());
     dto.setCohorteId(candidature.getCohorte().getId());
     dto.setPersonnelId(candidature.getPersonnel().getId());
+
+    // Ajout des informations supplémentaires
+    dto.setPersonnelNom(candidature.getPersonnel().getNom());
+    dto.setPersonnelPrenom(candidature.getPersonnel().getPrenom());
+    dto.setCohorteAnnee(candidature.getCohorte().getAnnee());
+
     return dto;
   }
 }
