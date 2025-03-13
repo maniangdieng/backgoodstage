@@ -3,6 +3,8 @@ package gestion_voyage.gestion_voyage.dto;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.springframework.web.multipart.MultipartFile;
+
 import java.time.LocalDate;
 
 @Data
@@ -10,22 +12,17 @@ import java.time.LocalDate;
 @AllArgsConstructor
 public class DocumentsDto {
 
-    Long id; // Identifiant du document
-
-    String statut; // Statut du document
-
-    LocalDate dateDebut;  // Date de début
-
-    LocalDate dateFin;  // Date de fin
-
-    String nomFichier; // Nom du fichier associé au document
+    private Long id; // Identifiant du document
+    private String statut; // Statut du document
+    private LocalDate dateDebut;  // Date de début
+    private LocalDate dateFin;  // Date de fin
+    private String nomFichier; // Nom du fichier associé au document
+    private MultipartFile fichier; // Fichier à uploader
+    private byte[] contenu;
 
     // Ajout des identifiants pour les associations
-    Long voyageEtudeId;
-    Long subventionId;
-    Long candidatureId;
-
-
+    private Long voyageEtudeId;
+    private Long subventionId;
+    private Long candidatureId;
+    private String cheminFichier;
 }
-
-

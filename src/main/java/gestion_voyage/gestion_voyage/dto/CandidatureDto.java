@@ -1,29 +1,33 @@
 package gestion_voyage.gestion_voyage.dto;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.validation.constraints.*;
 import lombok.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDate;
 import java.util.List;
+
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true) // Ignorer les champs inconnus
 public class CandidatureDto {
 
-  Long id;
+  private Long id;
 
   @NotNull(message = "La date de dépôt est obligatoire")
   @PastOrPresent(message = "La date de dépôt doit être dans le passé ou aujourd'hui")
-  LocalDate dateDepot;
+  private LocalDate dateDepot;
 
   @NotEmpty(message = "Le statut est obligatoire")
-  String statut;
+  private String statut;
 
   @FutureOrPresent(message = "La date de début doit être dans le futur ou aujourd'hui")
-  LocalDate dateDebut;
+  private LocalDate dateDebut;
 
   @FutureOrPresent(message = "La date de fin doit être dans le futur ou aujourd'hui")
-  LocalDate dateFin;
+  private LocalDate dateFin;
 
   @AssertTrue(message = "La date de fin doit être après la date de début")
   public boolean isDateFinAfterDateDebut() {
@@ -31,9 +35,9 @@ public class CandidatureDto {
   }
 
   @NotEmpty(message = "La destination est obligatoire")
-  String destination;
+  private String destination;
 
-  String commentaire;
+  private String commentaire;
 
   @NotNull(message = "La cohorte est obligatoire")
   private Long cohorteId; // Ajout du champ cohorteId
@@ -45,18 +49,23 @@ public class CandidatureDto {
   private String personnelNom;
   private String personnelPrenom;
   private Integer cohorteAnnee;
+  private List<MultipartFile> fichiers; // Ajout des fichiers
 
   // Relations avec d'autres DTOs
-  CohorteDto cohorte;
-  VoyageEtudeDto voyageEtude;
+  private CohorteDto cohorte;
+  private VoyageEtudeDto voyageEtude;
 
   @Size(min = 0, message = "La liste des documents ne doit pas être vide")
   private List<DocumentsDto> documents;
 
-  PersonnelDto personnel;
+  private PersonnelDto personnel;
 
   // Ajout des dates de la cohorte
   private LocalDate dateOuvertureCohorte;
   private LocalDate dateClotureCohorte;
-}
 
+  // Champs pour les fichiers
+  private MultipartFile arreteTitularisation; // Fichier pour l'arrêté de titularisation
+  private MultipartFile justificatifPrecedentVoyage; // Fichier pour le justificatif de voyage précédent
+  private String typeCandidature; // Ajoutez ce champ
+}

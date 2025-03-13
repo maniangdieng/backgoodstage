@@ -12,7 +12,10 @@ import gestion_voyage.gestion_voyage.service.DocumentsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.File;
+import java.io.IOException;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -22,16 +25,46 @@ import java.util.stream.Collectors;
 
 public class DocumentsServiceImpl implements DocumentsService {
 
+    private static final String UPLOAD_DIR = "C:\\uploads\\";
 @Autowired
     private final DocumentsRepository documentsRepository;
     private final DocumentsMapper documentsMapper;
 
     @Override
     public DocumentsDto createDocument(DocumentsDto documentsDto) {
+        MultipartFile file = documentsDto.getFichier();
+
+        // Vérifier que le fichier n'est pas vide
+        if (file == null || file.isEmpty()) {
+            throw new RuntimeException("Le fichier est vide ou non valide.");
+        }
+
+        // Vérifier que le répertoire de stockage existe
+        File uploadDir = new File(UPLOAD_DIR);
+        if (!uploadDir.exists()) {
+            uploadDir.mkdirs(); // Crée le répertoire s'il n'existe pas
+        }
+
+        try {
+            // Enregistrer le fichier
+            String uniqueFileName = System.currentTimeMillis() + "_" + file.getOriginalFilename();
+            String filePath = UPLOAD_DIR + uniqueFileName;
+            file.transferTo(new File(filePath));
+
+            // Mettre à jour le DTO avec les informations du fichier
+            documentsDto.setNomFichier(file.getOriginalFilename());
+            documentsDto.setContenu(file.getBytes());
+            documentsDto.setCheminFichier(filePath); // Stocker le chemin du fichier
+        } catch (IOException e) {
+            throw new RuntimeException("Erreur lors de l'enregistrement du fichier : " + e.getMessage(), e);
+        }
+
+        // Enregistrer le document en base de données
         Documents documents = documentsMapper.toEntity(documentsDto);
         Documents savedDocument = documentsRepository.save(documents);
         return documentsMapper.toDto(savedDocument);
     }
+
 
     @Override
     public DocumentsDto getDocumentById(Long id) {

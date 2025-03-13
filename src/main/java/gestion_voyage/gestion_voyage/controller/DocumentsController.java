@@ -1,12 +1,22 @@
 package gestion_voyage.gestion_voyage.controller;
 
 import gestion_voyage.gestion_voyage.dto.DocumentsDto;
+import gestion_voyage.gestion_voyage.entity.Documents;
+import gestion_voyage.gestion_voyage.repository.CohorteRepository;
+import gestion_voyage.gestion_voyage.repository.DocumentsRepository;
 import gestion_voyage.gestion_voyage.service.DocumentsService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.UrlResource;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 
 @RestController
@@ -14,12 +24,22 @@ import java.util.List;
 
 public class DocumentsController {
 
+    private static final String UPLOAD_DIR = "C:/uploads/";
+
+
     @Autowired
     private DocumentsService documentsService;
 
+    @Autowired
+    private DocumentsRepository documentsRepository;
+
+
     // POST: Créer un document
     @PostMapping
-    public ResponseEntity<DocumentsDto> createDocument(@RequestBody DocumentsDto documentsDto) {
+    public ResponseEntity<DocumentsDto> createDocument(
+            @RequestPart("document") DocumentsDto documentsDto,
+            @RequestPart("file") MultipartFile file) {
+        documentsDto.setFichier(file);
         DocumentsDto savedDocument = documentsService.createDocument(documentsDto);
         return new ResponseEntity<>(savedDocument, HttpStatus.CREATED);
     }
@@ -99,6 +119,31 @@ public class DocumentsController {
     public ResponseEntity<List<DocumentsDto>> getDocumentsByCandidatureId(@PathVariable Long candidatureId) {
         List<DocumentsDto> documents = documentsService.getDocumentsByCandidatureId(candidatureId);
         return new ResponseEntity<>(documents, HttpStatus.OK);
+    }
+
+    @GetMapping("/{documentId}/preview")
+    public ResponseEntity<Resource> previewDocument(@PathVariable Long documentId) {
+        try {
+            // Récupérer le document depuis la base de données
+            Documents document = documentsRepository.findById(documentId)
+                    .orElseThrow(() -> new RuntimeException("Document non trouvé"));
+
+            // Charger le fichier depuis le système de fichiers
+            Path filePath = Paths.get(UPLOAD_DIR).resolve(document.getNomFichier()).normalize();
+            Resource resource = new UrlResource(filePath.toUri());
+
+            // Vérifier que le fichier existe
+            if (resource.exists() || resource.isReadable()) {
+                return ResponseEntity.ok()
+                        .contentType(MediaType.APPLICATION_PDF) // Ajustez le type MIME selon le fichier
+                        .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + resource.getFilename() + "\"")
+                        .body(resource);
+            } else {
+                throw new RuntimeException("Le fichier n'existe pas ou n'est pas accessible.");
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Erreur lors du chargement du fichier", e);
+        }
     }
 }
 

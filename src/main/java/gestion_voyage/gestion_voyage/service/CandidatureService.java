@@ -1,6 +1,7 @@
 package gestion_voyage.gestion_voyage.service;
 
 import gestion_voyage.gestion_voyage.dto.CandidatureDto;
+import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
@@ -35,4 +36,8 @@ public interface CandidatureService {
 
     // Rechercher des candidatures par destination
     List<CandidatureDto> getCandidaturesByDestination(String destination);
+
+    Resource downloadDocument(Long documentId);
+
+    String getDocumentUrl(Long documentId);
 }

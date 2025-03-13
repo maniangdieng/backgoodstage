@@ -1,19 +1,28 @@
   package gestion_voyage.gestion_voyage.controller;
 
 
+  import com.fasterxml.jackson.databind.ObjectMapper;
+  import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
   import gestion_voyage.gestion_voyage.dto.CandidatureDto;
   import gestion_voyage.gestion_voyage.entity.Cohorte;
   import gestion_voyage.gestion_voyage.repository.CohorteRepository;
   import gestion_voyage.gestion_voyage.service.CandidatureService;
   import org.springframework.beans.factory.annotation.Autowired;
+  import org.springframework.core.io.Resource;
   import org.springframework.data.domain.Page;
   import org.springframework.data.domain.Pageable;
+  import org.springframework.http.HttpHeaders;
+  import org.springframework.http.MediaType;
   import org.springframework.http.ResponseEntity;
   import org.springframework.web.bind.annotation.*;
   import org.springframework.format.annotation.DateTimeFormat;
+  import org.springframework.web.multipart.MultipartFile;
 
+  import java.io.IOException;
   import java.time.LocalDate;
   import java.util.List;
+  import com.fasterxml.jackson.databind.ObjectMapper;
+
 
   @RestController
   @RequestMapping("/api/candidatures")
@@ -25,21 +34,36 @@
       private CohorteRepository cohorteRepository;
 
       // Créer une nouvelle candidature
-      @PostMapping
-      public ResponseEntity<CandidatureDto> createCandidature(@RequestBody CandidatureDto candidatureDto) {
-        if (candidatureDto.getStatut() == null || candidatureDto.getStatut().isEmpty()) {
-          candidatureDto.setStatut("EN_ATTENTE"); // Valeur par défaut
-        }
-        // Récupérer la cohorte pour obtenir les dates
-        Cohorte cohorte = cohorteRepository.findById(candidatureDto.getCohorteId())
-          .orElseThrow(() -> new RuntimeException("Cohorte non trouvée"));
 
-        // Ajouter les dates de la cohorte au DTO
-        candidatureDto.setDateOuvertureCohorte(cohorte.getDateOuverture());
-        candidatureDto.setDateClotureCohorte(cohorte.getDateClotureDef());
+
+
+      @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+      public ResponseEntity<CandidatureDto> createCandidature(
+              @RequestPart("candidature") String candidatureJson,
+              @RequestPart("files") List<MultipartFile> files) {
+          // Convertir la chaîne JSON en objet CandidatureDto
+          ObjectMapper objectMapper = new ObjectMapper();
+          objectMapper.registerModule(new JavaTimeModule()); // Ajouter le module jsr310
+          CandidatureDto candidatureDto;
+
+
+          try {
+              candidatureDto = objectMapper.readValue(candidatureJson, CandidatureDto.class);
+          } catch (IOException e) {
+              // Log l'erreur et retourner une réponse d'erreur
+              System.err.println("Erreur lors de la conversion JSON : " + e.getMessage());
+              return ResponseEntity.badRequest().body(null);
+          }
+
+          // Ajouter les fichiers PDF au DTO
+          candidatureDto.setFichiers(files);
+
+          // Créer la candidature
           CandidatureDto createdCandidature = candidatureService.createCandidature(candidatureDto);
           return ResponseEntity.ok(createdCandidature);
       }
+
+
 
       // Lire une candidature par ID
       @GetMapping("/{id}")
@@ -95,5 +119,21 @@
       public ResponseEntity<List<CandidatureDto>> getCandidaturesByDestination(@PathVariable String destination) {
           List<CandidatureDto> candidatures = candidatureService.getCandidaturesByDestination(destination);
           return ResponseEntity.ok(candidatures);
+      }
+
+      // Endpoint pour télécharger un document
+      @GetMapping("/documents/{documentId}/download")
+      public ResponseEntity<Resource> downloadDocument(@PathVariable Long documentId) {
+          Resource resource = candidatureService.downloadDocument(documentId);
+          return ResponseEntity.ok()
+                  .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                  .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + resource.getFilename() + "\"")
+                  .body(resource);
+      }
+
+      @GetMapping("/documents/{documentId}/url")
+      public ResponseEntity<String> getDocumentUrl(@PathVariable Long documentId) {
+          String documentUrl = candidatureService.getDocumentUrl(documentId);
+          return ResponseEntity.ok(documentUrl);
       }
   }

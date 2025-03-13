@@ -51,9 +51,8 @@ public class Candidature implements Serializable {
     VoyageEtude voyageEtude;
 
     // Relation avec Documents
-    @OneToMany(mappedBy = "candidature", cascade = CascadeType.ALL, orphanRemoval = true)
-    List<Documents> documents;
-
+    @OneToMany(mappedBy = "candidature", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    private List<Documents> documents;
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "personnel_id")
     Personnel personnel;
