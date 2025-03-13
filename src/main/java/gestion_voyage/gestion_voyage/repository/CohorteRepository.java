@@ -26,4 +26,6 @@ public interface CohorteRepository  extends JpaRepository<Cohorte, Long> {
 
     // Supprimer une cohorte par année
     void deleteByAnnee(Integer annee);
+  boolean existsByAnnee(int annee);
+
 }

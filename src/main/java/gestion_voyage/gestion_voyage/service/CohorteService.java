@@ -30,4 +30,5 @@ public interface CohorteService {
 
     // Supprimer une cohorte par année
     void deleteCohorteByAnnee(Integer annee);
+  boolean existsByAnnee(int annee);
 }

@@ -47,9 +47,22 @@ public class CohorteServiceImpl implements CohorteService {
 
     @Override
     public Cohorte saveCohorte(Cohorte cohorte) {
-        return cohorteRepository.save(cohorte);
-    }
+      // Vérifier l'unicité de l'année
+      Optional<Cohorte> existingCohorte = cohorteRepository.findByAnnee(cohorte.getAnnee());
+      if (existingCohorte.isPresent() && !existingCohorte.get().getId().equals(cohorte.getId())) {
+        throw new IllegalArgumentException("Une cohorte existe déjà pour cette année.");
+      }
 
+      // Vérifier l'ordre des dates
+      if (cohorte.getDateOuverture().isAfter(cohorte.getDateSemiCloture())) {
+        throw new IllegalArgumentException("La date d'ouverture doit être antérieure à la date de semi-clôture.");
+      }
+      if (cohorte.getDateSemiCloture().isAfter(cohorte.getDateClotureDef())) {
+        throw new IllegalArgumentException("La date de semi-clôture doit être antérieure à la date de clôture définitive.");
+      }
+
+      return cohorteRepository.save(cohorte);
+    }
     @Override
     public void deleteCohorteById(Long id) {
         cohorteRepository.deleteById(id);
@@ -59,4 +72,8 @@ public class CohorteServiceImpl implements CohorteService {
     public void deleteCohorteByAnnee(Integer annee) {
         cohorteRepository.deleteByAnnee(annee);  // Correction ici pour utiliser 'deleteByAnnee'
     }
+    @Override
+  public boolean existsByAnnee(int annee) {
+    return cohorteRepository.existsByAnnee(annee);
+  }
 }
