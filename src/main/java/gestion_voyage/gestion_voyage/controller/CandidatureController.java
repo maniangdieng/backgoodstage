@@ -21,6 +21,8 @@
   import java.io.IOException;
   import java.time.LocalDate;
   import java.util.List;
+  import java.util.Optional;
+
   import com.fasterxml.jackson.databind.ObjectMapper;
 
 
@@ -36,32 +38,44 @@
       // Créer une nouvelle candidature
 
 
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<?> createCandidature(
+      @RequestPart("candidature") String candidatureJson,
+      @RequestPart("files") List<MultipartFile> files) {
+      try {
+        // Convertir la chaîne JSON en objet CandidatureDto
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.registerModule(new JavaTimeModule());
+        CandidatureDto candidatureDto = objectMapper.readValue(candidatureJson, CandidatureDto.class);
 
-      @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-      public ResponseEntity<CandidatureDto> createCandidature(
-              @RequestPart("candidature") String candidatureJson,
-              @RequestPart("files") List<MultipartFile> files) {
-          // Convertir la chaîne JSON en objet CandidatureDto
-          ObjectMapper objectMapper = new ObjectMapper();
-          objectMapper.registerModule(new JavaTimeModule()); // Ajouter le module jsr310
-          CandidatureDto candidatureDto;
+        // Vérifier si la cohorte existe
+        Optional<Cohorte> cohorte = cohorteRepository.findById(candidatureDto.getCohorteId());
+        if (cohorte.isEmpty()) {
+          return ResponseEntity.badRequest().body("La cohorte sélectionnée n'existe pas.");
+        }
 
+        // Vérifier si la date de dépôt est dans la période de la cohorte
+        LocalDate dateDepot = candidatureDto.getDateDepot();
+        LocalDate dateOuverture = cohorte.get().getDateOuverture();
+        LocalDate dateClotureDef = cohorte.get().getDateClotureDef();
 
-          try {
-              candidatureDto = objectMapper.readValue(candidatureJson, CandidatureDto.class);
-          } catch (IOException e) {
-              // Log l'erreur et retourner une réponse d'erreur
-              System.err.println("Erreur lors de la conversion JSON : " + e.getMessage());
-              return ResponseEntity.badRequest().body(null);
-          }
+        if (dateDepot.isBefore(dateOuverture)) {
+          return ResponseEntity.badRequest().body("La date de dépôt est antérieure à la date d'ouverture de la cohorte.");
+        }
+        if (dateDepot.isAfter(dateClotureDef)) {
+          return ResponseEntity.badRequest().body("La date de dépôt est postérieure à la date de clôture définitive de la cohorte.");
+        }
 
-          // Ajouter les fichiers PDF au DTO
-          candidatureDto.setFichiers(files);
+        // Ajouter les fichiers PDF au DTO
+        candidatureDto.setFichiers(files);
 
-          // Créer la candidature
-          CandidatureDto createdCandidature = candidatureService.createCandidature(candidatureDto);
-          return ResponseEntity.ok(createdCandidature);
+        // Créer la candidature
+        CandidatureDto createdCandidature = candidatureService.createCandidature(candidatureDto);
+        return ResponseEntity.ok(createdCandidature);
+      } catch (IOException e) {
+        return ResponseEntity.badRequest().body("Erreur lors de la conversion JSON : " + e.getMessage());
       }
+    }
 
 
 
