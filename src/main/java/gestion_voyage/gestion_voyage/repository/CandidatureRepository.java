@@ -12,9 +12,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 @Repository
-
 public interface CandidatureRepository extends JpaRepository<Candidature, Long> {
-
 
     List<Candidature> findByStatut(String statut);
 
@@ -42,4 +40,14 @@ public interface CandidatureRepository extends JpaRepository<Candidature, Long> 
     List<Candidature> findByCriteria(@Param("statut") String statut,
                                      @Param("dateDebut") LocalDate dateDebut,
                                      @Param("dateFin") LocalDate dateFin);
+
+    // Vérifier si un enseignant a déjà effectué un voyage validé
+    @Query("SELECT COUNT(c) FROM Candidature c WHERE c.personnel.id = :personnelId AND c.statut = :statut")
+    int countByPersonnelIdAndStatut(@Param("personnelId") Long personnelId, @Param("statut") String statut);
+
+    // Vérifier si un enseignant a un voyage en cours
+
+    @Query("SELECT COUNT(c) FROM Candidature c WHERE c.personnel.id = :personnelId AND c.statut IN :statut")
+    int existsByPersonnelIdAndStatutIn(@Param("personnelId") Long personnelId, @Param("statut") List<String> statut);
+
 }

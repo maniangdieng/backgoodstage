@@ -23,6 +23,7 @@ import java.io.File;
 import java.io.IOException;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -63,6 +64,21 @@ public class CandidatureServiceImpl implements CandidatureService {
       throw new RuntimeException("La date de dépôt est postérieure à la date de clôture de la cohorte.");
     }
 
+    // Déterminer si l'enseignant est nouveau ou ancien
+    boolean isNouveau = isEnseignantNouveau(candidatureDto.getPersonnelId());
+
+    // Vérifier les documents requis
+    if (isNouveau) {
+      if (candidatureDto.getFichiers() == null || !candidatureDto.getFichiers().containsKey("arreteTitularisation")) {
+        throw new RuntimeException("Un arrêté de titularisation est requis pour les nouveaux enseignants.");
+      }
+
+    } else {
+        if (candidatureDto.getFichiers() == null || !candidatureDto.getFichiers().containsKey("justificatifPrecedentVoyage")){
+        throw new RuntimeException("Un justificatif du précédent voyage est requis pour les anciens enseignants.");
+      }
+    }
+
     // Mapper le DTO vers l'entité
     Candidature candidature = new Candidature();
     candidature.setDateDepot(candidatureDto.getDateDepot());
@@ -78,47 +94,47 @@ public class CandidatureServiceImpl implements CandidatureService {
 
     // Gérer les fichiers
     if (candidatureDto.getFichiers() != null && !candidatureDto.getFichiers().isEmpty()) {
-      for (MultipartFile file : candidatureDto.getFichiers()) {
-        try {
-          // Créer le répertoire s'il n'existe pas
-          File uploadPath = new File(UPLOAD_DIR);
-          if (!uploadPath.exists()) {
-            boolean created = uploadPath.mkdirs();
-            if (!created) {
-              throw new RuntimeException("Impossible de créer le répertoire : " + UPLOAD_DIR);
-            }
-          }
-
-          // Nettoyer le nom du fichier
-          String fileName = file.getOriginalFilename().replaceAll("[\\\\/:*?\"<>|]", "_");
-          String filePath = UPLOAD_DIR + fileName;
-
-          // Vérifier la taille du fichier
-          if (file.getSize() > 10 * 1024 * 1024) { // 10 Mo
-            throw new RuntimeException("Le fichier est trop volumineux. Taille maximale : 10 Mo.");
-          }
-
-          // Enregistrer le fichier sur le système de fichiers
-          System.out.println("Enregistrement du fichier : " + filePath);
-          file.transferTo(new File(filePath));
-
-          // Enregistrer le chemin du fichier dans la base de données
-          Documents document = new Documents();
-          document.setNomFichier(fileName);
-          document.setCheminFichier(filePath); // Stocker le chemin du fichier
-          document.setStatut("EN_ATTENTE"); // Définir une valeur par défaut pour statut
-          document.setTypeDocument("Arrêté de titularisation");
-          document.setCandidature(savedCandidature);
-          documentsRepository.save(document);
-        } catch (IOException e) {
-          System.err.println("Erreur lors de l'enregistrement du fichier : " + e.getMessage());
-          throw new RuntimeException("Erreur lors de l'enregistrement du fichier", e);
-        }
+      for (Map.Entry<String, MultipartFile> entry : candidatureDto.getFichiers().entrySet()) {
+        String typeDocument = entry.getKey();
+        MultipartFile file = entry.getValue();
+        saveDocument(file, typeDocument, savedCandidature);
       }
     }
 
     // Mapper l'entité sauvegardée vers le DTO pour la réponse
     return mapToDto(savedCandidature);
+  }
+
+  private boolean isEnseignantNouveau(Long personnelId) {
+    // Vérifier si l'enseignant a déjà effectué un voyage validé
+    return candidatureRepository.countByPersonnelIdAndStatut(personnelId, "Voyage terminé") == 0;
+  }
+
+  private boolean areDocumentsValides(Long candidatureId) {
+    List<Documents> documents = documentsRepository.findByCandidatureId(candidatureId);
+    return documents.stream()
+            .allMatch(doc -> doc.getStatut().equals("VALIDÉ"));
+  }
+
+  private int hasVoyageEnCours(Long personnelId) {
+    return candidatureRepository.existsByPersonnelIdAndStatutIn(
+            personnelId,
+            List.of("En attente de départ", "Voyage en cours")
+    );
+  }
+
+  @Override
+  public void validateCandidature(Long candidatureId) {
+    Candidature candidature = candidatureRepository.findById(candidatureId)
+            .orElseThrow(() -> new RuntimeException("Candidature non trouvée"));
+
+    if (!areDocumentsValides(candidatureId)) {
+      throw new RuntimeException("Tous les documents requis doivent être validés.");
+    }
+
+    // Mettre à jour le statut de la candidature
+    candidature.setStatut("VALIDÉ");
+    candidatureRepository.save(candidature);
   }
 
   @Override
@@ -239,6 +255,7 @@ public class CandidatureServiceImpl implements CandidatureService {
 
     return new FileSystemResource(file);
   }
+
   @Override
   public String getDocumentUrl(Long documentId) {
     Documents document = documentsRepository.findById(documentId)
@@ -246,5 +263,34 @@ public class CandidatureServiceImpl implements CandidatureService {
 
     // Retourner le chemin du fichier
     return document.getCheminFichier();
+  }
+
+  // Méthode pour sauvegarder un document
+  private void saveDocument(MultipartFile file, String typeDocument, Candidature candidature) {
+    try {
+      // Créer le répertoire de stockage s'il n'existe pas
+      File uploadDir = new File(UPLOAD_DIR);
+      if (!uploadDir.exists()) {
+        uploadDir.mkdirs();
+      }
+
+      // Générer un nom de fichier unique
+      String fileName = System.currentTimeMillis() + "_" + file.getOriginalFilename();
+      String filePath = UPLOAD_DIR + fileName;
+
+      // Sauvegarder le fichier sur le disque
+      file.transferTo(new File(filePath));
+
+      // Enregistrer le document en base de données
+      Documents document = new Documents();
+      document.setNomFichier(file.getOriginalFilename());
+      document.setCheminFichier(filePath);
+      document.setTypeDocument(typeDocument);
+      document.setStatut("EN_ATTENTE");
+      document.setCandidature(candidature);
+      documentsRepository.save(document);
+    } catch (IOException e) {
+      throw new RuntimeException("Erreur lors de la sauvegarde du fichier : " + e.getMessage());
+    }
   }
 }

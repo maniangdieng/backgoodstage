@@ -20,10 +20,15 @@
 
   import java.io.IOException;
   import java.time.LocalDate;
+  import java.util.HashMap;
   import java.util.List;
+  import java.util.Map;
   import java.util.Optional;
+  import java.util.stream.Collectors;
 
   import com.fasterxml.jackson.databind.ObjectMapper;
+
+  import static org.hibernate.query.sqm.tree.SqmNode.log;
 
 
   @RestController
@@ -38,44 +43,54 @@
       // Créer une nouvelle candidature
 
 
-    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<?> createCandidature(
-      @RequestPart("candidature") String candidatureJson,
-      @RequestPart("files") List<MultipartFile> files) {
-      try {
-        // Convertir la chaîne JSON en objet CandidatureDto
-        ObjectMapper objectMapper = new ObjectMapper();
-        objectMapper.registerModule(new JavaTimeModule());
-        CandidatureDto candidatureDto = objectMapper.readValue(candidatureJson, CandidatureDto.class);
+      @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+      public ResponseEntity<?> createCandidature(
+              @RequestPart("candidature") String candidatureJson,
+              @RequestPart(value = "arreteTitularisation", required = false) MultipartFile arreteTitularisation,
+              @RequestPart(value = "justificatifPrecedentVoyage", required = false) MultipartFile justificatifPrecedentVoyage) {
+          try {
+              // Convert the JSON string to a CandidatureDto object
+              ObjectMapper objectMapper = new ObjectMapper();
+              objectMapper.registerModule(new JavaTimeModule());
+              CandidatureDto candidatureDto = objectMapper.readValue(candidatureJson, CandidatureDto.class);
 
-        // Vérifier si la cohorte existe
-        Optional<Cohorte> cohorte = cohorteRepository.findById(candidatureDto.getCohorteId());
-        if (cohorte.isEmpty()) {
-          return ResponseEntity.badRequest().body("La cohorte sélectionnée n'existe pas.");
-        }
+              // Check if the cohorte exists
+              Optional<Cohorte> cohorte = cohorteRepository.findById(candidatureDto.getCohorteId());
+              if (cohorte.isEmpty()) {
+                  return ResponseEntity.badRequest().body("La cohorte sélectionnée n'existe pas.");
+              }
 
-        // Vérifier si la date de dépôt est dans la période de la cohorte
-        LocalDate dateDepot = candidatureDto.getDateDepot();
-        LocalDate dateOuverture = cohorte.get().getDateOuverture();
-        LocalDate dateClotureDef = cohorte.get().getDateClotureDef();
+              // Check if the deposit date is within the cohorte's period
+              LocalDate dateDepot = candidatureDto.getDateDepot();
+              LocalDate dateOuverture = cohorte.get().getDateOuverture();
+              LocalDate dateClotureDef = cohorte.get().getDateClotureDef();
 
-        if (dateDepot.isBefore(dateOuverture)) {
-          return ResponseEntity.badRequest().body("La date de dépôt est antérieure à la date d'ouverture de la cohorte.");
-        }
-        if (dateDepot.isAfter(dateClotureDef)) {
-          return ResponseEntity.badRequest().body("La date de dépôt est postérieure à la date de clôture définitive de la cohorte.");
-        }
+              if (dateDepot.isBefore(dateOuverture)) {
+                  return ResponseEntity.badRequest().body("La date de dépôt est antérieure à la date d'ouverture de la cohorte.");
+              }
+              if (dateDepot.isAfter(dateClotureDef)) {
+                  return ResponseEntity.badRequest().body("La date de dépôt est postérieure à la date de clôture définitive de la cohorte.");
+              }
 
-        // Ajouter les fichiers PDF au DTO
-        candidatureDto.setFichiers(files);
+              // Map the files into a Map
+              Map<String, MultipartFile> fichiersMap = new HashMap<>();
+              if (arreteTitularisation != null) {
+                  fichiersMap.put("arreteTitularisation", arreteTitularisation);
+              }
+              if (justificatifPrecedentVoyage != null) {
+                  fichiersMap.put("justificatifPrecedentVoyage", justificatifPrecedentVoyage);
+              }
 
-        // Créer la candidature
-        CandidatureDto createdCandidature = candidatureService.createCandidature(candidatureDto);
-        return ResponseEntity.ok(createdCandidature);
-      } catch (IOException e) {
-        return ResponseEntity.badRequest().body("Erreur lors de la conversion JSON : " + e.getMessage());
+              // Add the files to the DTO
+              candidatureDto.setFichiers(fichiersMap);
+
+              // Create the candidature
+              CandidatureDto createdCandidature = candidatureService.createCandidature(candidatureDto);
+              return ResponseEntity.ok(createdCandidature);
+          } catch (IOException e) {
+              return ResponseEntity.badRequest().body("Erreur lors de la conversion JSON : " + e.getMessage());
+          }
       }
-    }
 
 
 

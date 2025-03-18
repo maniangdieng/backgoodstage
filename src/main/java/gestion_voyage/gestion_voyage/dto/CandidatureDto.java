@@ -7,6 +7,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 @Data
 @AllArgsConstructor
@@ -49,7 +50,9 @@ public class CandidatureDto {
   private String personnelNom;
   private String personnelPrenom;
   private Integer cohorteAnnee;
-  private List<MultipartFile> fichiers; // Ajout des fichiers
+
+  // Utilisation d'une Map pour les fichiers
+  private Map<String, MultipartFile> fichiers; // Changement ici
 
   // Relations avec d'autres DTOs
   private CohorteDto cohorte;

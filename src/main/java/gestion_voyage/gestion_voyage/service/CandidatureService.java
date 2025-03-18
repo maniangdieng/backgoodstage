@@ -37,7 +37,12 @@ public interface CandidatureService {
     // Rechercher des candidatures par destination
     List<CandidatureDto> getCandidaturesByDestination(String destination);
 
+    // Télécharger un document
     Resource downloadDocument(Long documentId);
 
+    // Obtenir l'URL d'un document
     String getDocumentUrl(Long documentId);
+
+    // Valider une candidature
+    void validateCandidature(Long candidatureId);
 }
