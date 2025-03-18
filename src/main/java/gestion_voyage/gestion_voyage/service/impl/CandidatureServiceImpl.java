@@ -265,6 +265,7 @@ public class CandidatureServiceImpl implements CandidatureService {
     return document.getCheminFichier();
   }
 
+<<<<<<< HEAD
   // Méthode pour sauvegarder un document
   private void saveDocument(MultipartFile file, String typeDocument, Candidature candidature) {
     try {
@@ -294,3 +295,30 @@ public class CandidatureServiceImpl implements CandidatureService {
     }
   }
 }
+=======
+
+
+
+
+  @Override
+  public List<CandidatureDto> getCandidaturesByUtilisateur(Long personnelId) {
+    // Récupérer les candidatures du personnel via son ID
+    return candidatureRepository.findByPersonnelId(personnelId).stream()
+      .map(this::convertToDto)
+      .collect(Collectors.toList());
+  }
+  private CandidatureDto convertToDto(Candidature candidature) {
+    CandidatureDto dto = new CandidatureDto();
+    dto.setId(candidature.getId());
+    dto.setDateDepot(candidature.getDateDepot());
+    dto.setDestination(candidature.getDestination());
+    dto.setStatut(candidature.getStatut());
+    // Ajoutez d'autres champs si nécessaire
+    return dto;
+  }
+
+
+
+
+}
+>>>>>>> 78aa0ee93cdfb0f4afbac018816b6b49b4c95300

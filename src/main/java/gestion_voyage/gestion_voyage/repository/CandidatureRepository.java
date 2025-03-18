@@ -20,6 +20,8 @@ public interface CandidatureRepository extends JpaRepository<Candidature, Long> 
 
     List<Candidature> findByDateDebut(LocalDate dateDebut);
 
+
+
     List<Candidature> findByDateFin(LocalDate dateFin);
 
     List<Candidature> findByDestination(String destination);
@@ -41,6 +43,7 @@ public interface CandidatureRepository extends JpaRepository<Candidature, Long> 
                                      @Param("dateDebut") LocalDate dateDebut,
                                      @Param("dateFin") LocalDate dateFin);
 
+<<<<<<< HEAD
     // Vérifier si un enseignant a déjà effectué un voyage validé
     @Query("SELECT COUNT(c) FROM Candidature c WHERE c.personnel.id = :personnelId AND c.statut = :statut")
     int countByPersonnelIdAndStatut(@Param("personnelId") Long personnelId, @Param("statut") String statut);
@@ -51,3 +54,13 @@ public interface CandidatureRepository extends JpaRepository<Candidature, Long> 
     int existsByPersonnelIdAndStatutIn(@Param("personnelId") Long personnelId, @Param("statut") List<String> statut);
 
 }
+=======
+
+  @Query("SELECT c FROM Candidature c WHERE c.personnel.email = :email")
+  List<Candidature> findByPersonnelEmail(@Param("email") String email);
+
+
+  @Query("SELECT c FROM Candidature c WHERE c.personnel.id = :personnelId")
+  List<Candidature> findByPersonnelId(@Param("personnelId") Long personnelId);
+}
+>>>>>>> 78aa0ee93cdfb0f4afbac018816b6b49b4c95300
