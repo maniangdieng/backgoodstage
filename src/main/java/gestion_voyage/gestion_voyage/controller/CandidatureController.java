@@ -5,8 +5,12 @@
   import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
   import gestion_voyage.gestion_voyage.dto.CandidatureDto;
   import gestion_voyage.gestion_voyage.entity.Cohorte;
+  import gestion_voyage.gestion_voyage.entity.Personnel;
+  import gestion_voyage.gestion_voyage.entity.Utilisateur;
   import gestion_voyage.gestion_voyage.repository.CohorteRepository;
+  import gestion_voyage.gestion_voyage.repository.PersonnelRepository;
   import gestion_voyage.gestion_voyage.service.CandidatureService;
+  import jakarta.servlet.http.HttpSession;
   import org.springframework.beans.factory.annotation.Autowired;
   import org.springframework.core.io.Resource;
   import org.springframework.data.domain.Page;
@@ -30,12 +34,12 @@
   @RequestMapping("/api/candidatures")
 
   public class CandidatureController {
-      @Autowired
-      private CandidatureService candidatureService;
-      @Autowired
-      private CohorteRepository cohorteRepository;
+    @Autowired
+    private CandidatureService candidatureService;
+    @Autowired
+    private CohorteRepository cohorteRepository;
 
-      // Créer une nouvelle candidature
+    // Créer une nouvelle candidature
 
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -78,76 +82,86 @@
     }
 
 
+    // Lire une candidature par ID
+    @GetMapping("/{id}")
+    public ResponseEntity<CandidatureDto> getCandidatureById(@PathVariable Long id) {
+      CandidatureDto candidatureDto = candidatureService.getCandidatureById(id);
+      return ResponseEntity.ok(candidatureDto);
+    }
 
-      // Lire une candidature par ID
-      @GetMapping("/{id}")
-      public ResponseEntity<CandidatureDto> getCandidatureById(@PathVariable Long id) {
-          CandidatureDto candidatureDto = candidatureService.getCandidatureById(id);
-          return ResponseEntity.ok(candidatureDto);
-      }
+    // Lire toutes les candidatures avec pagination
+    @GetMapping
+    public ResponseEntity<Page<CandidatureDto>> getAllCandidatures(Pageable pageable) {
+      Page<CandidatureDto> candidatures = candidatureService.getAllCandidatures(pageable);
+      return ResponseEntity.ok(candidatures);
+    }
 
-      // Lire toutes les candidatures avec pagination
-      @GetMapping
-      public ResponseEntity<Page<CandidatureDto>> getAllCandidatures(Pageable pageable) {
-          Page<CandidatureDto> candidatures = candidatureService.getAllCandidatures(pageable);
-          return ResponseEntity.ok(candidatures);
-      }
+    // Lire toutes les candidatures sans pagination
+    @GetMapping("/all")
+    public ResponseEntity<List<CandidatureDto>> getAllCandidaturesNoPagination() {
+      List<CandidatureDto> candidatures = candidatureService.getAllCandidatures();
+      return ResponseEntity.ok(candidatures);
+    }
 
-      // Lire toutes les candidatures sans pagination
-      @GetMapping("/all")
-      public ResponseEntity<List<CandidatureDto>> getAllCandidaturesNoPagination() {
-          List<CandidatureDto> candidatures = candidatureService.getAllCandidatures();
-          return ResponseEntity.ok(candidatures);
-      }
+    // Mettre à jour une candidature existante
+    @PutMapping("/{id}")
+    public ResponseEntity<CandidatureDto> updateCandidature(@PathVariable Long id, @RequestBody CandidatureDto candidatureDto) {
+      CandidatureDto updatedCandidature = candidatureService.updateCandidature(id, candidatureDto);
+      return ResponseEntity.ok(updatedCandidature);
+    }
 
-      // Mettre à jour une candidature existante
-      @PutMapping("/{id}")
-      public ResponseEntity<CandidatureDto> updateCandidature(@PathVariable Long id, @RequestBody CandidatureDto candidatureDto) {
-          CandidatureDto updatedCandidature = candidatureService.updateCandidature(id, candidatureDto);
-          return ResponseEntity.ok(updatedCandidature);
-      }
+    // Supprimer une candidature par ID
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteCandidature(@PathVariable Long id) {
+      candidatureService.deleteCandidature(id);
+      return ResponseEntity.noContent().build();
+    }
 
-      // Supprimer une candidature par ID
-      @DeleteMapping("/{id}")
-      public ResponseEntity<Void> deleteCandidature(@PathVariable Long id) {
-          candidatureService.deleteCandidature(id);
-          return ResponseEntity.noContent().build();
-      }
+    // Rechercher des candidatures par statut
+    @GetMapping("/statut/{statut}")
+    public ResponseEntity<List<CandidatureDto>> getCandidaturesByStatut(@PathVariable String statut) {
+      List<CandidatureDto> candidatures = candidatureService.getCandidaturesByStatut(statut);
+      return ResponseEntity.ok(candidatures);
+    }
 
-      // Rechercher des candidatures par statut
-      @GetMapping("/statut/{statut}")
-      public ResponseEntity<List<CandidatureDto>> getCandidaturesByStatut(@PathVariable String statut) {
-          List<CandidatureDto> candidatures = candidatureService.getCandidaturesByStatut(statut);
-          return ResponseEntity.ok(candidatures);
-      }
+    // Rechercher des candidatures par date de dépôt
+    @GetMapping("/dateDepot/{dateDepot}")
+    public ResponseEntity<List<CandidatureDto>> getCandidaturesByDateDepot(@PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateDepot) {
+      List<CandidatureDto> candidatures = candidatureService.getCandidaturesByDateDepot(dateDepot);
+      return ResponseEntity.ok(candidatures);
+    }
 
-      // Rechercher des candidatures par date de dépôt
-      @GetMapping("/dateDepot/{dateDepot}")
-      public ResponseEntity<List<CandidatureDto>> getCandidaturesByDateDepot(@PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateDepot) {
-          List<CandidatureDto> candidatures = candidatureService.getCandidaturesByDateDepot(dateDepot);
-          return ResponseEntity.ok(candidatures);
-      }
+    // Rechercher des candidatures par destination
+    @GetMapping("/destination/{destination}")
+    public ResponseEntity<List<CandidatureDto>> getCandidaturesByDestination(@PathVariable String destination) {
+      List<CandidatureDto> candidatures = candidatureService.getCandidaturesByDestination(destination);
+      return ResponseEntity.ok(candidatures);
+    }
 
-      // Rechercher des candidatures par destination
-      @GetMapping("/destination/{destination}")
-      public ResponseEntity<List<CandidatureDto>> getCandidaturesByDestination(@PathVariable String destination) {
-          List<CandidatureDto> candidatures = candidatureService.getCandidaturesByDestination(destination);
-          return ResponseEntity.ok(candidatures);
-      }
+    // Endpoint pour télécharger un document
+    @GetMapping("/documents/{documentId}/download")
+    public ResponseEntity<Resource> downloadDocument(@PathVariable Long documentId) {
+      Resource resource = candidatureService.downloadDocument(documentId);
+      return ResponseEntity.ok()
+        .contentType(MediaType.APPLICATION_OCTET_STREAM)
+        .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + resource.getFilename() + "\"")
+        .body(resource);
+    }
 
-      // Endpoint pour télécharger un document
-      @GetMapping("/documents/{documentId}/download")
-      public ResponseEntity<Resource> downloadDocument(@PathVariable Long documentId) {
-          Resource resource = candidatureService.downloadDocument(documentId);
-          return ResponseEntity.ok()
-                  .contentType(MediaType.APPLICATION_OCTET_STREAM)
-                  .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + resource.getFilename() + "\"")
-                  .body(resource);
-      }
+    @GetMapping("/documents/{documentId}/url")
+    public ResponseEntity<String> getDocumentUrl(@PathVariable Long documentId) {
+      String documentUrl = candidatureService.getDocumentUrl(documentId);
+      return ResponseEntity.ok(documentUrl);
+    }
+    @Autowired
+    private PersonnelRepository personnelRepository;
+    @GetMapping("/mes-candidatures/{userId}")
+    public ResponseEntity<List<CandidatureDto>> getMesCandidatures(@PathVariable Long userId) {
+      List<CandidatureDto> candidatures = candidatureService.getCandidaturesByUtilisateur(userId);
+      return ResponseEntity.ok(candidatures);
+    }
+    }
 
-      @GetMapping("/documents/{documentId}/url")
-      public ResponseEntity<String> getDocumentUrl(@PathVariable Long documentId) {
-          String documentUrl = candidatureService.getDocumentUrl(documentId);
-          return ResponseEntity.ok(documentUrl);
-      }
-  }
+
+
+

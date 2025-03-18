@@ -40,4 +40,5 @@ public interface CandidatureService {
     Resource downloadDocument(Long documentId);
 
     String getDocumentUrl(Long documentId);
+  public List<CandidatureDto> getCandidaturesByUtilisateur(Long personnelId);
 }

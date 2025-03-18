@@ -1,6 +1,7 @@
 package gestion_voyage.gestion_voyage.repository;
 
 import gestion_voyage.gestion_voyage.entity.Personnel;
+import jakarta.persistence.Id;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,4 +37,6 @@ public interface PersonnelRepository extends JpaRepository<Personnel, Long> {
     // Trouver tous les personnels par téléphone
     @Transactional(readOnly = true)
     List<Personnel> findByTelephone(String telephone);
+
+
 }

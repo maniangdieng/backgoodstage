@@ -247,4 +247,29 @@ public class CandidatureServiceImpl implements CandidatureService {
     // Retourner le chemin du fichier
     return document.getCheminFichier();
   }
+
+
+
+
+
+  @Override
+  public List<CandidatureDto> getCandidaturesByUtilisateur(Long personnelId) {
+    // Récupérer les candidatures du personnel via son ID
+    return candidatureRepository.findByPersonnelId(personnelId).stream()
+      .map(this::convertToDto)
+      .collect(Collectors.toList());
+  }
+  private CandidatureDto convertToDto(Candidature candidature) {
+    CandidatureDto dto = new CandidatureDto();
+    dto.setId(candidature.getId());
+    dto.setDateDepot(candidature.getDateDepot());
+    dto.setDestination(candidature.getDestination());
+    dto.setStatut(candidature.getStatut());
+    // Ajoutez d'autres champs si nécessaire
+    return dto;
+  }
+
+
+
+
 }

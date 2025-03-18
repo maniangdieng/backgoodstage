@@ -22,6 +22,8 @@ public interface CandidatureRepository extends JpaRepository<Candidature, Long> 
 
     List<Candidature> findByDateDebut(LocalDate dateDebut);
 
+
+
     List<Candidature> findByDateFin(LocalDate dateFin);
 
     List<Candidature> findByDestination(String destination);
@@ -42,4 +44,12 @@ public interface CandidatureRepository extends JpaRepository<Candidature, Long> 
     List<Candidature> findByCriteria(@Param("statut") String statut,
                                      @Param("dateDebut") LocalDate dateDebut,
                                      @Param("dateFin") LocalDate dateFin);
+
+
+  @Query("SELECT c FROM Candidature c WHERE c.personnel.email = :email")
+  List<Candidature> findByPersonnelEmail(@Param("email") String email);
+
+
+  @Query("SELECT c FROM Candidature c WHERE c.personnel.id = :personnelId")
+  List<Candidature> findByPersonnelId(@Param("personnelId") Long personnelId);
 }
