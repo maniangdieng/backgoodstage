@@ -265,7 +265,8 @@ public class CandidatureServiceImpl implements CandidatureService {
     return document.getCheminFichier();
   }
 
-<<<<<<< HEAD
+
+
   // Méthode pour sauvegarder un document
   private void saveDocument(MultipartFile file, String typeDocument, Candidature candidature) {
     try {
@@ -294,8 +295,8 @@ public class CandidatureServiceImpl implements CandidatureService {
       throw new RuntimeException("Erreur lors de la sauvegarde du fichier : " + e.getMessage());
     }
   }
-}
-=======
+
+
 
 
 
@@ -321,4 +322,4 @@ public class CandidatureServiceImpl implements CandidatureService {
 
 
 }
->>>>>>> 78aa0ee93cdfb0f4afbac018816b6b49b4c95300
+

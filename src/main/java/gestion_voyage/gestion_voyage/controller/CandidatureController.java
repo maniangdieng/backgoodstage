@@ -119,8 +119,28 @@
     }
 
     // Mettre à jour une candidature existante
+    // Dans CandidatureController
     @PutMapping("/{id}")
-    public ResponseEntity<CandidatureDto> updateCandidature(@PathVariable Long id, @RequestBody CandidatureDto candidatureDto) {
+    public ResponseEntity<?> updateCandidature(@PathVariable Long id, @RequestBody CandidatureDto candidatureDto) {
+      // Récupérer la candidature existante
+      CandidatureDto existingCandidature = candidatureService.getCandidatureById(id);
+      if (existingCandidature == null) {
+        return ResponseEntity.notFound().build();
+      }
+
+      // Récupérer la cohorte associée
+      Optional<Cohorte> cohorte = cohorteRepository.findById(existingCandidature.getCohorteId());
+      if (cohorte.isEmpty()) {
+        return ResponseEntity.badRequest().body("Cohorte non trouvée.");
+      }
+
+      // Vérifier si la date de clôture est dépassée
+      LocalDate aujourdHui = LocalDate.now();
+      if (aujourdHui.isAfter(cohorte.get().getDateClotureDef())) {
+        return ResponseEntity.badRequest().body("La date de clôture de la cohorte est passée. Modification impossible.");
+      }
+
+      // Mettre à jour la candidature
       CandidatureDto updatedCandidature = candidatureService.updateCandidature(id, candidatureDto);
       return ResponseEntity.ok(updatedCandidature);
     }
