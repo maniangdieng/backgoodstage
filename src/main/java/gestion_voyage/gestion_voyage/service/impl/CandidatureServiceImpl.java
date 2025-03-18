@@ -2,6 +2,7 @@ package gestion_voyage.gestion_voyage.service.impl;
 
 import gestion_voyage.gestion_voyage.dto.CandidatureDto;
 import gestion_voyage.gestion_voyage.dto.DocumentsDto;
+import gestion_voyage.gestion_voyage.dto.VoyageEtudeDto;
 import gestion_voyage.gestion_voyage.entity.Candidature;
 import gestion_voyage.gestion_voyage.entity.Cohorte;
 import gestion_voyage.gestion_voyage.entity.Documents;
@@ -11,6 +12,7 @@ import gestion_voyage.gestion_voyage.repository.CohorteRepository;
 import gestion_voyage.gestion_voyage.repository.DocumentsRepository;
 import gestion_voyage.gestion_voyage.repository.PersonnelRepository;
 import gestion_voyage.gestion_voyage.service.CandidatureService;
+import gestion_voyage.gestion_voyage.service.VoyageEtudeService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
@@ -40,6 +42,10 @@ public class CandidatureServiceImpl implements CandidatureService {
 
   @Autowired
   private PersonnelRepository personnelRepository;
+
+  @Autowired
+  private VoyageEtudeService voyageEtudeService; // Injecter le service VoyageEtudeService
+
 
   // Chemin de stockage des fichiers
   private static final String UPLOAD_DIR = "C:\\uploads\\";
@@ -123,6 +129,7 @@ public class CandidatureServiceImpl implements CandidatureService {
     );
   }
 
+
   @Override
   public void validateCandidature(Long candidatureId) {
     Candidature candidature = candidatureRepository.findById(candidatureId)
@@ -135,6 +142,24 @@ public class CandidatureServiceImpl implements CandidatureService {
     // Mettre à jour le statut de la candidature
     candidature.setStatut("VALIDÉ");
     candidatureRepository.save(candidature);
+
+    // Créer un voyage d'étude après validation de la candidature
+    createVoyageEtudeFromCandidature(candidature);
+  }
+
+  // Méthode pour créer un voyage d'étude à partir d'une candidature validée
+  private void createVoyageEtudeFromCandidature(Candidature candidature) {
+    VoyageEtudeDto voyageEtudeDto = new VoyageEtudeDto();
+    voyageEtudeDto.setDateCreation(LocalDate.now()); // Date de création du voyage
+    voyageEtudeDto.setAnnee(candidature.getCohorte().getAnnee()); // Année de la cohorte
+    voyageEtudeDto.setObservation("Voyage créé automatiquement après validation de la candidature.");
+    voyageEtudeDto.setDateVoyage(candidature.getDateDebut()); // Date de début du voyage
+    voyageEtudeDto.setDateRetour(candidature.getDateFin()); // Date de retour du voyage
+    voyageEtudeDto.setStatut("EN_ATTENTE"); // Statut initial du voyage
+    voyageEtudeDto.setSession("Session " + LocalDate.now().getYear()); // Session du voyage
+
+    // Créer le voyage d'étude
+    voyageEtudeService.create(voyageEtudeDto);
   }
 
   @Override
@@ -265,7 +290,7 @@ public class CandidatureServiceImpl implements CandidatureService {
     return document.getCheminFichier();
   }
 
-<<<<<<< HEAD
+
   // Méthode pour sauvegarder un document
   private void saveDocument(MultipartFile file, String typeDocument, Candidature candidature) {
     try {
@@ -294,9 +319,6 @@ public class CandidatureServiceImpl implements CandidatureService {
       throw new RuntimeException("Erreur lors de la sauvegarde du fichier : " + e.getMessage());
     }
   }
-}
-=======
-
 
 
 
@@ -318,7 +340,4 @@ public class CandidatureServiceImpl implements CandidatureService {
   }
 
 
-
-
 }
->>>>>>> 78aa0ee93cdfb0f4afbac018816b6b49b4c95300

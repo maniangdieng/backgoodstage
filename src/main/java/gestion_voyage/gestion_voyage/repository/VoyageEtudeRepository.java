@@ -8,6 +8,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 
@@ -25,6 +26,9 @@ public interface VoyageEtudeRepository extends JpaRepository<VoyageEtude, Long> 
 
     // Méthode avec pagination pour trouver des voyages d'étude par année
     Page<VoyageEtude> findByAnnee(Integer annee, Pageable pageable);
+
+    Optional<VoyageEtude> findByCandidatureId(Long candidatureId);
+
 
     // Méthode pour vérifier l'existence d'un voyage d'étude avec des critères spécifiques
     boolean existsByDateVoyageAndDateRetourAndSession(LocalDate dateVoyage, LocalDate dateRetour, String session);

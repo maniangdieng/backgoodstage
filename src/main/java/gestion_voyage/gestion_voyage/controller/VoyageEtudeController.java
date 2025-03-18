@@ -3,6 +3,7 @@ package gestion_voyage.gestion_voyage.controller;
 import gestion_voyage.gestion_voyage.dto.VoyageEtudeDto;
 import gestion_voyage.gestion_voyage.service.VoyageEtudeService;
 import lombok.AllArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -18,6 +19,10 @@ public class VoyageEtudeController {
 
 
     private final VoyageEtudeService service;
+
+
+    @Autowired
+    private VoyageEtudeService voyageEtudeService;
 
     // POST: Ajouter un voyage d'étude
     @PostMapping
@@ -56,5 +61,17 @@ public class VoyageEtudeController {
             return new ResponseEntity<>(HttpStatus.NO_CONTENT);
         }
         return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+    }
+
+    @PostMapping("/{id}/start")
+    public ResponseEntity<Void> startVoyage(@PathVariable Long id) {
+        voyageEtudeService.startVoyage(id);
+        return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/{id}/end")
+    public ResponseEntity<Void> endVoyage(@PathVariable Long id) {
+        voyageEtudeService.endVoyage(id);
+        return ResponseEntity.ok().build();
     }
 }

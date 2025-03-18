@@ -44,6 +44,9 @@
     @Autowired
     private CohorteRepository cohorteRepository;
 
+      @Autowired
+      private PersonnelRepository personnelRepository;
+
     // Créer une nouvelle candidature
 
 
@@ -168,8 +171,7 @@
       String documentUrl = candidatureService.getDocumentUrl(documentId);
       return ResponseEntity.ok(documentUrl);
     }
-    @Autowired
-    private PersonnelRepository personnelRepository;
+
     @GetMapping("/mes-candidatures/{userId}")
     public ResponseEntity<List<CandidatureDto>> getMesCandidatures(@PathVariable Long userId) {
       List<CandidatureDto> candidatures = candidatureService.getCandidaturesByUtilisateur(userId);
