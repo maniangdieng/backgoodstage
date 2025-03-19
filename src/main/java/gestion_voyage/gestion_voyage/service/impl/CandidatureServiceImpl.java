@@ -135,8 +135,16 @@ public class CandidatureServiceImpl implements CandidatureService {
     Candidature candidature = candidatureRepository.findById(candidatureId)
             .orElseThrow(() -> new RuntimeException("Candidature non trouvée"));
 
-    if (!areDocumentsValides(candidatureId)) {
-      throw new RuntimeException("Tous les documents requis doivent être validés.");
+    // Mettre à jour le statut de tous les documents associés à la candidature
+    List<Documents> documents = documentsRepository.findByCandidatureId(candidatureId);
+    for (Documents document : documents) {
+      document.setStatut("VALIDÉ");
+      documentsRepository.save(document);
+    }
+
+    // Vérifier si un voyage existe déjà pour cette candidature
+    if (candidature.getVoyageEtude() != null) {
+      throw new RuntimeException("Un voyage existe déjà pour cette candidature.");
     }
 
     // Mettre à jour le statut de la candidature
@@ -204,6 +212,8 @@ public class CandidatureServiceImpl implements CandidatureService {
     candidature.setDateFin(candidatureDto.getDateFin());
     candidature.setStatut(candidatureDto.getStatut());
     candidature.setDestination(candidatureDto.getDestination());
+    candidature.setCommentaire(candidatureDto.getCommentaire()); // Mettre à jour le commentaire
+
 
     // Enregistrer les modifications
     Candidature updatedCandidature = candidatureRepository.save(candidature);
@@ -248,6 +258,7 @@ public class CandidatureServiceImpl implements CandidatureService {
     dto.setDateFin(candidature.getDateFin());
     dto.setStatut(candidature.getStatut());
     dto.setDestination(candidature.getDestination());
+    dto.setCommentaire(candidature.getCommentaire()); // Inclure le commentaire
     dto.setCohorteId(candidature.getCohorte().getId());
     dto.setPersonnelId(candidature.getPersonnel().getId());
 
@@ -324,19 +335,19 @@ public class CandidatureServiceImpl implements CandidatureService {
 
   @Override
   public List<CandidatureDto> getCandidaturesByUtilisateur(Long personnelId) {
-    // Récupérer les candidatures du personnel via son ID
     return candidatureRepository.findByPersonnelId(personnelId).stream()
-      .map(this::convertToDto)
-      .collect(Collectors.toList());
+            .map(this::mapToDto) // Utiliser mapToDto au lieu de convertToDto
+            .collect(Collectors.toList());
   }
-  private CandidatureDto convertToDto(Candidature candidature) {
-    CandidatureDto dto = new CandidatureDto();
-    dto.setId(candidature.getId());
-    dto.setDateDepot(candidature.getDateDepot());
-    dto.setDestination(candidature.getDestination());
-    dto.setStatut(candidature.getStatut());
-    // Ajoutez d'autres champs si nécessaire
-    return dto;
+
+  @Override
+  public CandidatureDto updateCommentaire(Long id, String commentaire) {
+    Candidature candidature = candidatureRepository.findById(id)
+            .orElseThrow(() -> new RuntimeException("Candidature non trouvée"));
+
+    candidature.setCommentaire(commentaire);
+    Candidature updatedCandidature = candidatureRepository.save(candidature);
+    return mapToDto(updatedCandidature);
   }
 
 

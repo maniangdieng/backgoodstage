@@ -25,6 +25,11 @@ public interface CandidatureService {
     // Mettre à jour une candidature existante
     CandidatureDto updateCandidature(Long id, CandidatureDto candidatureDto);
 
+    CandidatureDto updateCommentaire(Long id, String commentaire);
+
+
+
+
     // Supprimer une candidature par ID
     void deleteCandidature(Long id);
 
