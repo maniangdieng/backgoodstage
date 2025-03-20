@@ -129,7 +129,7 @@ public class DocumentsController {
                     .orElseThrow(() -> new RuntimeException("Document non trouvé"));
 
             // Charger le fichier depuis le système de fichiers
-            Path filePath = Paths.get(UPLOAD_DIR).resolve(document.getNomFichier()).normalize();
+            Path filePath = Paths.get(UPLOAD_DIR).resolve(document.getCheminFichier()).normalize();
             Resource resource = new UrlResource(filePath.toUri());
 
             // Vérifier que le fichier existe

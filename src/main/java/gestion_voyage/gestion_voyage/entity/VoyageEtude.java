@@ -14,8 +14,7 @@ import java.util.List;
 @FieldDefaults(level = AccessLevel.PRIVATE)
 @EqualsAndHashCode(onlyExplicitlyIncluded = true)
 @EntityListeners(AuditingEntityListener.class)
-@Table(name = "voyage_etude", uniqueConstraints = {
-        @UniqueConstraint(columnNames = {"session"})})
+@Table(name = "voyage_etude")
 public class VoyageEtude implements Serializable {
 
     @Id

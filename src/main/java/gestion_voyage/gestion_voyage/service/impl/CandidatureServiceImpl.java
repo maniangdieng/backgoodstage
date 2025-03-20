@@ -2,6 +2,7 @@ package gestion_voyage.gestion_voyage.service.impl;
 
 import gestion_voyage.gestion_voyage.dto.CandidatureDto;
 import gestion_voyage.gestion_voyage.dto.DocumentsDto;
+import gestion_voyage.gestion_voyage.dto.VoyageEtudeDto;
 import gestion_voyage.gestion_voyage.entity.Candidature;
 import gestion_voyage.gestion_voyage.entity.Cohorte;
 import gestion_voyage.gestion_voyage.entity.Documents;
@@ -11,6 +12,7 @@ import gestion_voyage.gestion_voyage.repository.CohorteRepository;
 import gestion_voyage.gestion_voyage.repository.DocumentsRepository;
 import gestion_voyage.gestion_voyage.repository.PersonnelRepository;
 import gestion_voyage.gestion_voyage.service.CandidatureService;
+import gestion_voyage.gestion_voyage.service.VoyageEtudeService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
@@ -40,6 +42,10 @@ public class CandidatureServiceImpl implements CandidatureService {
 
   @Autowired
   private PersonnelRepository personnelRepository;
+
+  @Autowired
+  private VoyageEtudeService voyageEtudeService;
+
 
   // Chemin de stockage des fichiers
   private static final String UPLOAD_DIR = "C:\\uploads\\";
@@ -143,6 +149,8 @@ public class CandidatureServiceImpl implements CandidatureService {
     // Mettre à jour le statut de la candidature
     candidature.setStatut("VALIDÉ");
     candidatureRepository.save(candidature);
+
+    createVoyageEtudeFromCandidature(candidature);
   }
 
   @Override
@@ -187,17 +195,39 @@ public class CandidatureServiceImpl implements CandidatureService {
     candidature.setDateFin(candidatureDto.getDateFin());
     candidature.setStatut(candidatureDto.getStatut());
     candidature.setDestination(candidatureDto.getDestination());
-    candidature.setCommentaire(candidatureDto.getCommentaire()); // Mettre à jour le commentaire
+    candidature.setCommentaire(candidatureDto.getCommentaire());
 
+    // Gérer les fichiers
+    if (candidatureDto.getFichiers() != null && !candidatureDto.getFichiers().isEmpty()) {
+      for (Map.Entry<String, MultipartFile> entry : candidatureDto.getFichiers().entrySet()) {
+        String typeDocument = entry.getKey();
+        MultipartFile file = entry.getValue();
+        saveDocument(file, typeDocument, candidature);
+      }
+    }
 
     // Enregistrer les modifications
     Candidature updatedCandidature = candidatureRepository.save(candidature);
     return mapToDto(updatedCandidature);
   }
-
   @Override
   public void deleteCandidature(Long id) {
     candidatureRepository.deleteById(id);
+  }
+
+  @Override
+  public void deleteDocument(Long documentId) {
+    Documents document = documentsRepository.findById(documentId)
+            .orElseThrow(() -> new RuntimeException("Document non trouvé"));
+
+    // Supprimer le fichier du disque
+    File file = new File(document.getCheminFichier());
+    if (file.exists()) {
+      file.delete();
+    }
+
+    // Supprimer le document de la base de données
+    documentsRepository.delete(document);
   }
 
   @Override
@@ -308,10 +338,6 @@ public class CandidatureServiceImpl implements CandidatureService {
   }
 
 
-
-
-
-
   @Override
   public List<CandidatureDto> getCandidaturesByUtilisateur(Long personnelId) {
     return candidatureRepository.findByPersonnelId(personnelId).stream()
@@ -328,6 +354,22 @@ public class CandidatureServiceImpl implements CandidatureService {
     Candidature updatedCandidature = candidatureRepository.save(candidature);
     return mapToDto(updatedCandidature);
   }
+
+  // Méthode pour créer un voyage d'étude à partir d'une candidature validée
+  private void createVoyageEtudeFromCandidature(Candidature candidature) {
+    VoyageEtudeDto voyageEtudeDto = new VoyageEtudeDto();
+    voyageEtudeDto.setDateCreation(LocalDate.now()); // Date de création du voyage
+    voyageEtudeDto.setAnnee(candidature.getCohorte().getAnnee()); // Année de la cohorte
+    voyageEtudeDto.setObservation("Voyage créé automatiquement après validation de la candidature.");
+    voyageEtudeDto.setDateVoyage(candidature.getDateDebut()); // Date de début du voyage
+    voyageEtudeDto.setDateRetour(candidature.getDateFin()); // Date de retour du voyage
+    voyageEtudeDto.setStatut("EN_ATTENTE"); // Statut initial du voyage
+    voyageEtudeDto.setSession("Session " + LocalDate.now().getYear()); // Session du voyage
+
+    // Créer le voyage d'étude
+    voyageEtudeService.create(voyageEtudeDto);
+  }
+
 
 
 

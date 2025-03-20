@@ -33,6 +33,8 @@ public interface CandidatureService {
     // Supprimer une candidature par ID
     void deleteCandidature(Long id);
 
+    void deleteDocument(Long documentId);
+
     // Rechercher des candidatures par statut
     List<CandidatureDto> getCandidaturesByStatut(String statut);
 
