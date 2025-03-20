@@ -50,13 +50,4 @@ public class VoyageEtude implements Serializable {
     // Relation 1:1 avec Candidature
     @OneToOne(mappedBy = "voyageEtude", cascade = CascadeType.ALL, orphanRemoval = true)
     Candidature candidature;
-
-    // Méthode pour définir le statut
-    public void setStatut(String statut) {
-        if (List.of("EN_ATTENTE", "EN_COURS", "TERMINÉ").contains(statut)) {
-            this.statut = statut;
-        } else {
-            throw new IllegalArgumentException("Statut invalide : " + statut);
-        }
-    }
 }

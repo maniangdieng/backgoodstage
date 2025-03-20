@@ -32,10 +32,4 @@ public interface VoyageEtudeService {
 
     // Méthode pour récupérer des voyages d'études avec pagination selon l'année
     Page<VoyageEtudeDto> getVoyagesEtudesByAnnee(Integer annee, Pageable pageable);
-
-    // Méthode pour démarrer un voyage
-    void startVoyage(Long voyageId);
-
-    // Méthode pour terminer un voyage
-    void endVoyage(Long voyageId);
 }

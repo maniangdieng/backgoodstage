@@ -4,11 +4,9 @@
   import com.fasterxml.jackson.databind.ObjectMapper;
   import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
   import gestion_voyage.gestion_voyage.dto.CandidatureDto;
-  import gestion_voyage.gestion_voyage.entity.Candidature;
   import gestion_voyage.gestion_voyage.entity.Cohorte;
   import gestion_voyage.gestion_voyage.entity.Personnel;
   import gestion_voyage.gestion_voyage.entity.Utilisateur;
-  import gestion_voyage.gestion_voyage.repository.CandidatureRepository;
   import gestion_voyage.gestion_voyage.repository.CohorteRepository;
   import gestion_voyage.gestion_voyage.repository.PersonnelRepository;
   import gestion_voyage.gestion_voyage.service.CandidatureService;
@@ -46,15 +44,7 @@
     @Autowired
     private CohorteRepository cohorteRepository;
 
-      @Autowired
-      private PersonnelRepository personnelRepository;
-
-      @Autowired
-      private CandidatureRepository candidatureRepository;
-
-
-
-      // Créer une nouvelle candidature
+    // Créer une nouvelle candidature
 
 
       @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -129,8 +119,28 @@
     }
 
     // Mettre à jour une candidature existante
+    // Dans CandidatureController
     @PutMapping("/{id}")
-    public ResponseEntity<CandidatureDto> updateCandidature(@PathVariable Long id, @RequestBody CandidatureDto candidatureDto) {
+    public ResponseEntity<?> updateCandidature(@PathVariable Long id, @RequestBody CandidatureDto candidatureDto) {
+      // Récupérer la candidature existante
+      CandidatureDto existingCandidature = candidatureService.getCandidatureById(id);
+      if (existingCandidature == null) {
+        return ResponseEntity.notFound().build();
+      }
+
+      // Récupérer la cohorte associée
+      Optional<Cohorte> cohorte = cohorteRepository.findById(existingCandidature.getCohorteId());
+      if (cohorte.isEmpty()) {
+        return ResponseEntity.badRequest().body("Cohorte non trouvée.");
+      }
+
+      // Vérifier si la date de clôture est dépassée
+      LocalDate aujourdHui = LocalDate.now();
+      if (aujourdHui.isAfter(cohorte.get().getDateClotureDef())) {
+        return ResponseEntity.badRequest().body("La date de clôture de la cohorte est passée. Modification impossible.");
+      }
+
+      // Mettre à jour la candidature
       CandidatureDto updatedCandidature = candidatureService.updateCandidature(id, candidatureDto);
       return ResponseEntity.ok(updatedCandidature);
     }
@@ -178,42 +188,13 @@
       String documentUrl = candidatureService.getDocumentUrl(documentId);
       return ResponseEntity.ok(documentUrl);
     }
-
+    @Autowired
+    private PersonnelRepository personnelRepository;
     @GetMapping("/mes-candidatures/{userId}")
     public ResponseEntity<List<CandidatureDto>> getMesCandidatures(@PathVariable Long userId) {
       List<CandidatureDto> candidatures = candidatureService.getCandidaturesByUtilisateur(userId);
       return ResponseEntity.ok(candidatures);
     }
-
-
-      @PostMapping("/{id}/validate")
-      public ResponseEntity<?> validateCandidature(
-              @PathVariable Long id,
-              @RequestParam(required = false) String commentaire) {
-          try {
-              Candidature candidature = candidatureRepository.findById(id)
-                      .orElseThrow(() -> new RuntimeException("Candidature non trouvée"));
-
-              if (commentaire != null) {
-                  candidature.setCommentaire(commentaire);
-                  candidatureRepository.save(candidature);
-              }
-
-              candidatureService.validateCandidature(id);
-              return ResponseEntity.ok().build();
-          } catch (RuntimeException e) {
-              return ResponseEntity.badRequest().body(e.getMessage());
-          }
-      }
-
-      @PutMapping("/{id}/commentaire")
-      public ResponseEntity<CandidatureDto> updateCommentaire(
-              @PathVariable Long id,
-              @RequestParam String commentaire) {
-          CandidatureDto updatedCandidatureDto = candidatureService.updateCommentaire(id, commentaire);
-          return ResponseEntity.ok(updatedCandidatureDto);
-      }
-
     }
 
 

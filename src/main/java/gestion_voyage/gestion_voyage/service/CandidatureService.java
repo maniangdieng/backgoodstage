@@ -48,8 +48,9 @@ public interface CandidatureService {
     // Obtenir l'URL d'un document
     String getDocumentUrl(Long documentId);
 
-        // Valider une candidature
+    // Valider une candidature
     void validateCandidature(Long candidatureId);
 
   public List<CandidatureDto> getCandidaturesByUtilisateur(Long personnelId);
 }
+
