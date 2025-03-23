@@ -5,6 +5,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 
@@ -31,4 +32,11 @@ public interface DocumentsRepository extends JpaRepository<Documents,  Long> {
 
     // Méthode personnalisée pour trouver les documents par Candidature
     List<Documents> findByCandidatureId(Long candidatureId);
+
+  // Méthode personnalisée pour vérifier si un document de type "ARRETE" existe pour une candidature
+  boolean existsByCandidatureIdAndTypeDocument(Long candidatureId, String typeDocument);
+
+
+  // Méthode personnalisée pour récupérer un document de type "ARRETE" pour une candidature
+  Optional<Documents> findByCandidatureIdAndTypeDocument(Long candidatureId, String typeDocument);
 }

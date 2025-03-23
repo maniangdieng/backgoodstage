@@ -10,12 +10,14 @@
   import gestion_voyage.gestion_voyage.repository.CohorteRepository;
   import gestion_voyage.gestion_voyage.repository.PersonnelRepository;
   import gestion_voyage.gestion_voyage.service.CandidatureService;
+  import gestion_voyage.gestion_voyage.service.impl.CandidatureServiceImpl;
   import jakarta.servlet.http.HttpSession;
   import org.springframework.beans.factory.annotation.Autowired;
   import org.springframework.core.io.Resource;
   import org.springframework.data.domain.Page;
   import org.springframework.data.domain.Pageable;
   import org.springframework.http.HttpHeaders;
+  import org.springframework.http.HttpStatus;
   import org.springframework.http.MediaType;
   import org.springframework.http.ResponseEntity;
   import org.springframework.web.bind.annotation.*;
@@ -41,6 +43,8 @@
   public class CandidatureController {
     @Autowired
     private CandidatureService candidatureService;
+    @Autowired
+    private CandidatureServiceImpl candidatureServicei;
     @Autowired
     private CohorteRepository cohorteRepository;
 
@@ -195,6 +199,41 @@
       List<CandidatureDto> candidatures = candidatureService.getCandidaturesByUtilisateur(userId);
       return ResponseEntity.ok(candidatures);
     }
+
+    // Établir un arrêté
+    @PostMapping("/{id}/etablir-arrete")
+    public ResponseEntity<?> etablirArrete(@PathVariable Long id) {
+      try {
+        candidatureServicei.etablirArrete(id);
+        Map<String, String> response = new HashMap<>();
+        response.put("message", "Arrêté établi avec succès");
+        return ResponseEntity.ok(response);
+      } catch (Exception e) {
+        Map<String, String> errorResponse = new HashMap<>();
+        errorResponse.put("error", e.getMessage());
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+      }
+    }
+
+    // Vérifier si un arrêté existe
+    @GetMapping("/{id}/arrete-existe")
+    public ResponseEntity<Boolean> checkArreteExiste(@PathVariable Long id) {
+      boolean arreteExiste = candidatureServicei.checkArreteExiste(id);
+      return ResponseEntity.ok(arreteExiste);
+    }
+
+    // Télécharger l'arrêté
+    @GetMapping("/{id}/download-arrete")
+    public ResponseEntity<Resource> downloadArrete(@PathVariable Long id) {
+      Resource resource = candidatureServicei.downloadArrete(id);
+      return ResponseEntity.ok()
+        .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"arrete.pdf\"")
+        .body(resource);
+    }
+
+
+
+
     }
 
 
