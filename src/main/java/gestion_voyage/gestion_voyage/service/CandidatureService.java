@@ -4,9 +4,11 @@ import gestion_voyage.gestion_voyage.dto.CandidatureDto;
 import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 public interface CandidatureService {
 
@@ -32,6 +34,10 @@ public interface CandidatureService {
 
     // Supprimer une candidature par ID
     void deleteCandidature(Long id);
+
+    void submitRapportVoyage(Long candidatureId, Map<String, MultipartFile> fichiers);
+
+    void updateVoyageStatus (Long voyageId);
 
     void deleteDocument(Long documentId);
 

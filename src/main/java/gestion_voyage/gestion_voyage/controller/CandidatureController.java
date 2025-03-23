@@ -4,9 +4,11 @@
   import com.fasterxml.jackson.databind.ObjectMapper;
   import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
   import gestion_voyage.gestion_voyage.dto.CandidatureDto;
+  import gestion_voyage.gestion_voyage.entity.Candidature;
   import gestion_voyage.gestion_voyage.entity.Cohorte;
   import gestion_voyage.gestion_voyage.entity.Personnel;
   import gestion_voyage.gestion_voyage.entity.Utilisateur;
+  import gestion_voyage.gestion_voyage.repository.CandidatureRepository;
   import gestion_voyage.gestion_voyage.repository.CohorteRepository;
   import gestion_voyage.gestion_voyage.repository.PersonnelRepository;
   import gestion_voyage.gestion_voyage.service.CandidatureService;
@@ -44,7 +46,11 @@
     @Autowired
     private CohorteRepository cohorteRepository;
 
-    // Créer une nouvelle candidature
+      @Autowired
+      private CandidatureRepository candidatureRepository;
+
+
+      // Créer une nouvelle candidature
 
 
       @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -195,6 +201,73 @@
       List<CandidatureDto> candidatures = candidatureService.getCandidaturesByUtilisateur(userId);
       return ResponseEntity.ok(candidatures);
     }
+
+      @PostMapping("/{id}/validate")
+      public ResponseEntity<?> validateCandidature(@PathVariable Long id, @RequestParam(required = false) String commentaire) {
+          try {
+              Candidature candidature = candidatureRepository.findById(id)
+                      .orElseThrow(() -> new RuntimeException("Candidature non trouvée"));
+              if (commentaire != null) {
+                  candidature.setCommentaire(commentaire);
+                  candidatureRepository.save(candidature);
+              }
+              candidatureService.validateCandidature(id);
+              return ResponseEntity.ok("Candidature validée avec succès.");
+          } catch (Exception e) {
+              return ResponseEntity.badRequest().body(e.getMessage());
+          }
+      }
+
+      @PostMapping("/{id}/refuse")
+      public ResponseEntity<?> refuseCandidature(@PathVariable Long id, @RequestParam(required = false) String commentaire) {
+          try {
+              Candidature candidature = candidatureRepository.findById(id)
+                      .orElseThrow(() -> new RuntimeException("Candidature non trouvée"));
+              if (commentaire != null) {
+                  candidature.setCommentaire(commentaire);
+              }
+              candidature.setStatut("REFUSÉ");
+              candidatureRepository.save(candidature);
+              return ResponseEntity.ok("Candidature refusée avec succès.");
+          } catch (Exception e) {
+              return ResponseEntity.badRequest().body(e.getMessage());
+          }
+      }
+
+      @PostMapping(value = "/rapport-voyage", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+      public ResponseEntity<?> submitRapportVoyage(
+              @RequestParam("candidatureId") Long candidatureId,
+              @RequestPart("carteEmbarquement") MultipartFile carteEmbarquement,
+              @RequestPart(value = "justificatifDestination", required = false) MultipartFile justificatifDestination,
+              @RequestPart("rapportVoyage") MultipartFile rapportVoyage) {
+          try {
+              Map<String, MultipartFile> fichiers = new HashMap<>();
+              fichiers.put("carteEmbarquement", carteEmbarquement);
+              if (justificatifDestination != null) {
+                  fichiers.put("justificatifDestination", justificatifDestination);
+              }
+              fichiers.put("rapportVoyage", rapportVoyage);
+
+              candidatureService.submitRapportVoyage(candidatureId, fichiers);
+              return ResponseEntity.ok("Justificatifs et rapport soumis. Voyage terminé.");
+          } catch (Exception e) {
+              return ResponseEntity.badRequest().body("Erreur : " + e.getMessage());
+          }
+      }
+      @PostMapping("/voyage/{voyageId}/update-status")
+      public ResponseEntity<?> updateVoyageStatus(@PathVariable Long voyageId) {
+          try {
+              candidatureService.updateVoyageStatus(voyageId);
+              return ResponseEntity.ok("Statut du voyage mis à jour.");
+          } catch (Exception e) {
+              return ResponseEntity.badRequest().body("Erreur : " + e.getMessage());
+          }
+      }
+
+
+
+
+
     }
 
 

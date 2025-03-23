@@ -3,14 +3,9 @@ package gestion_voyage.gestion_voyage.service.impl;
 import gestion_voyage.gestion_voyage.dto.CandidatureDto;
 import gestion_voyage.gestion_voyage.dto.DocumentsDto;
 import gestion_voyage.gestion_voyage.dto.VoyageEtudeDto;
-import gestion_voyage.gestion_voyage.entity.Candidature;
-import gestion_voyage.gestion_voyage.entity.Cohorte;
-import gestion_voyage.gestion_voyage.entity.Documents;
-import gestion_voyage.gestion_voyage.entity.Personnel;
-import gestion_voyage.gestion_voyage.repository.CandidatureRepository;
-import gestion_voyage.gestion_voyage.repository.CohorteRepository;
-import gestion_voyage.gestion_voyage.repository.DocumentsRepository;
-import gestion_voyage.gestion_voyage.repository.PersonnelRepository;
+import gestion_voyage.gestion_voyage.entity.*;
+import gestion_voyage.gestion_voyage.mapper.VoyageEtudeMapper;
+import gestion_voyage.gestion_voyage.repository.*;
 import gestion_voyage.gestion_voyage.service.CandidatureService;
 import gestion_voyage.gestion_voyage.service.VoyageEtudeService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +13,7 @@ import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -33,6 +29,13 @@ public class CandidatureServiceImpl implements CandidatureService {
 
   @Autowired
   private CandidatureRepository candidatureRepository;
+
+  @Autowired
+  private VoyageEtudeRepository  voyageEtudeRepository;
+
+
+  @Autowired
+  private VoyageEtudeMapper voyageEtudeMapper;
 
   @Autowired
   private DocumentsRepository documentsRepository;
@@ -52,68 +55,81 @@ public class CandidatureServiceImpl implements CandidatureService {
 
   @Override
   public CandidatureDto createCandidature(CandidatureDto candidatureDto) {
-    // Vérifier que la cohorte et le personnel existent
     Cohorte cohorte = cohorteRepository.findById(candidatureDto.getCohorteId())
             .orElseThrow(() -> new RuntimeException("Cohorte non trouvée"));
     Personnel personnel = personnelRepository.findById(candidatureDto.getPersonnelId())
             .orElseThrow(() -> new RuntimeException("Personnel non trouvé"));
 
-    // Vérifier que la date de dépôt est dans l'intervalle de la cohorte
+    // Vérifier les contraintes d'éligibilité
+    checkEligibility(personnel, cohorte);
+
+    // Vérifier la période de la cohorte
     LocalDate dateDepot = candidatureDto.getDateDepot();
     LocalDate dateOuverture = cohorte.getDateOuverture();
     LocalDate dateCloture = cohorte.getDateClotureDef();
 
-    if (dateDepot.isBefore(dateOuverture)) {
-      throw new RuntimeException("La date de dépôt est antérieure à la date d'ouverture de la cohorte.");
+    if (dateDepot.isBefore(dateOuverture) || dateDepot.isAfter(dateCloture)) {
+      throw new RuntimeException("La date de dépôt est hors de la période de la cohorte.");
     }
-    if (dateDepot.isAfter(dateCloture)) {
-      throw new RuntimeException("La date de dépôt est postérieure à la date de clôture de la cohorte.");
-    }
-
-    // Déterminer si l'enseignant est nouveau ou ancien
-    boolean isNouveau = isEnseignantNouveau(candidatureDto.getPersonnelId());
 
     // Vérifier les documents requis
-    if (isNouveau) {
-      if (candidatureDto.getFichiers() == null || !candidatureDto.getFichiers().containsKey("arreteTitularisation")) {
-        throw new RuntimeException("Un arrêté de titularisation est requis pour les nouveaux enseignants.");
-      }
-
-    } else {
-        if (candidatureDto.getFichiers() == null || !candidatureDto.getFichiers().containsKey("justificatifPrecedentVoyage")){
-        throw new RuntimeException("Un justificatif du précédent voyage est requis pour les anciens enseignants.");
-      }
+    boolean isNouveau = isEnseignantNouveau(candidatureDto.getPersonnelId());
+    if (isNouveau && (candidatureDto.getFichiers() == null || !candidatureDto.getFichiers().containsKey("arreteTitularisation"))) {
+      throw new RuntimeException("Un arrêté de titularisation est requis pour les nouveaux enseignants.");
+    } else if (!isNouveau && (candidatureDto.getFichiers() == null || !candidatureDto.getFichiers().containsKey("justificatifPrecedentVoyage"))) {
+      throw new RuntimeException("Un justificatif du précédent voyage est requis pour les anciens enseignants.");
     }
 
-    // Mapper le DTO vers l'entité
+    // Créer la candidature
     Candidature candidature = new Candidature();
     candidature.setDateDepot(candidatureDto.getDateDepot());
     candidature.setDateDebut(candidatureDto.getDateDebut());
     candidature.setDateFin(candidatureDto.getDateFin());
-    candidature.setStatut(candidatureDto.getStatut() != null ? candidatureDto.getStatut() : "EN_ATTENTE"); // Valeur par défaut
+    candidature.setStatut("EN_ATTENTE"); // Statut initial de la candidature
     candidature.setDestination(candidatureDto.getDestination());
     candidature.setCohorte(cohorte);
     candidature.setPersonnel(personnel);
 
-    // Enregistrer en base de données
     Candidature savedCandidature = candidatureRepository.save(candidature);
 
-    // Gérer les fichiers
+    // Sauvegarder les fichiers
     if (candidatureDto.getFichiers() != null && !candidatureDto.getFichiers().isEmpty()) {
       for (Map.Entry<String, MultipartFile> entry : candidatureDto.getFichiers().entrySet()) {
-        String typeDocument = entry.getKey();
-        MultipartFile file = entry.getValue();
-        saveDocument(file, typeDocument, savedCandidature);
+        saveDocument(entry.getValue(), entry.getKey(), savedCandidature);
       }
     }
 
-    // Mapper l'entité sauvegardée vers le DTO pour la réponse
     return mapToDto(savedCandidature);
   }
 
+  private void checkEligibility(Personnel personnel, Cohorte nouvelleCohorte) {
+    List<Candidature> candidatures = candidatureRepository.findByPersonnelId(personnel.getId());
+
+    // Vérifier les candidatures en attente
+    if (candidatures.stream().anyMatch(c -> "EN_ATTENTE".equals(c.getStatut()))) {
+      throw new RuntimeException("Vous avez une candidature en attente. Nouvelle soumission interdite.");
+    }
+
+    // Vérifier les voyages en attente ou en cours
+    for (Candidature c : candidatures) {
+      if (c.getVoyageEtude() != null && ("EN_ATTENTE".equals(c.getVoyageEtude().getStatut()) || "EN_COURS".equals(c.getVoyageEtude().getStatut()))) {
+        throw new RuntimeException("Vous avez un voyage en attente ou en cours. Nouvelle soumission interdite.");
+      }
+    }
+
+    // Vérifier les cohortes consécutives
+    int anneeNouvelleCohorte = nouvelleCohorte.getAnnee();
+    for (Candidature c : candidatures) {
+      int anneePrecedente = c.getCohorte().getAnnee();
+      if (anneeNouvelleCohorte == anneePrecedente + 1) {
+        throw new RuntimeException("Candidatures pour deux cohortes consécutives interdites. Attendez " + (anneePrecedente + 2) + ".");
+      }
+    }
+  }
+
   private boolean isEnseignantNouveau(Long personnelId) {
-    // Vérifier si l'enseignant a déjà effectué un voyage validé
-    return candidatureRepository.countByPersonnelIdAndStatut(personnelId, "Voyage terminé") == 0;
+    return candidatureRepository.findByPersonnelId(personnelId).stream()
+            .noneMatch(c -> c.getVoyageEtude() != null && "TERMINÉ".equals(c.getVoyageEtude().getStatut()));
   }
 
   private boolean areDocumentsValides(Long candidatureId) {
@@ -134,25 +150,46 @@ public class CandidatureServiceImpl implements CandidatureService {
     Candidature candidature = candidatureRepository.findById(candidatureId)
             .orElseThrow(() -> new RuntimeException("Candidature non trouvée"));
 
-    // Mettre à jour le statut de tous les documents associés à la candidature
+    // Vérifier que la candidature est en attente
+    if (!"EN_ATTENTE".equals(candidature.getStatut())) {
+      throw new RuntimeException("La candidature doit être en attente pour être validée.");
+    }
+
+    // Valider les documents
     List<Documents> documents = documentsRepository.findByCandidatureId(candidatureId);
     for (Documents document : documents) {
       document.setStatut("VALIDÉ");
       documentsRepository.save(document);
     }
 
-    // Vérifier si un voyage existe déjà pour cette candidature
-    if (candidature.getVoyageEtude() != null) {
-      throw new RuntimeException("Un voyage existe déjà pour cette candidature.");
-    }
-
     // Mettre à jour le statut de la candidature
     candidature.setStatut("VALIDÉ");
     candidatureRepository.save(candidature);
 
+    // Créer le voyage
     createVoyageEtudeFromCandidature(candidature);
   }
 
+  private void createVoyageEtudeFromCandidature(Candidature candidature) {
+    VoyageEtudeDto voyageEtudeDto = new VoyageEtudeDto();
+    voyageEtudeDto.setDateCreation(LocalDate.now());
+    voyageEtudeDto.setAnnee(candidature.getCohorte().getAnnee());
+    voyageEtudeDto.setObservation("Voyage créé après validation de la candidature.");
+    voyageEtudeDto.setDateVoyage(candidature.getDateDebut());
+    voyageEtudeDto.setDateRetour(candidature.getDateFin());
+    voyageEtudeDto.setStatut("EN_ATTENTE"); // Statut initial du voyage
+    voyageEtudeDto.setSession("Session " + LocalDate.now().getYear());
+
+    // Créer le voyage via le service
+    VoyageEtudeDto createdVoyageDto = voyageEtudeService.create(voyageEtudeDto);
+
+    // Convertir le DTO en entité
+    VoyageEtude voyage = voyageEtudeMapper.toEntity(createdVoyageDto);
+
+    // Lier le voyage à la candidature
+    candidature.setVoyageEtude(voyage);
+    candidatureRepository.save(candidature);
+  }
   @Override
   public CandidatureDto getCandidatureById(Long id) {
     Candidature candidature = candidatureRepository.findById(id)
@@ -355,23 +392,71 @@ public class CandidatureServiceImpl implements CandidatureService {
     return mapToDto(updatedCandidature);
   }
 
-  // Méthode pour créer un voyage d'étude à partir d'une candidature validée
-  private void createVoyageEtudeFromCandidature(Candidature candidature) {
-    VoyageEtudeDto voyageEtudeDto = new VoyageEtudeDto();
-    voyageEtudeDto.setDateCreation(LocalDate.now()); // Date de création du voyage
-    voyageEtudeDto.setAnnee(candidature.getCohorte().getAnnee()); // Année de la cohorte
-    voyageEtudeDto.setObservation("Voyage créé automatiquement après validation de la candidature.");
-    voyageEtudeDto.setDateVoyage(candidature.getDateDebut()); // Date de début du voyage
-    voyageEtudeDto.setDateRetour(candidature.getDateFin()); // Date de retour du voyage
-    voyageEtudeDto.setStatut("EN_ATTENTE"); // Statut initial du voyage
-    voyageEtudeDto.setSession("Session " + LocalDate.now().getYear()); // Session du voyage
+  public void updateCandidatureStatus(Long candidatureId) {
+    Candidature candidature = candidatureRepository.findById(candidatureId)
+            .orElseThrow(() -> new RuntimeException("Candidature non trouvée"));
 
-    // Créer le voyage d'étude
-    voyageEtudeService.create(voyageEtudeDto);
+    LocalDate today = LocalDate.now();
+    if ("EN_ATTENTE".equals(candidature.getStatut()) && today.isEqual(candidature.getDateDebut())) {
+      candidature.setStatut("EN_COURS");
+      candidatureRepository.save(candidature);
+    }
+
+
+
   }
 
+  public void updateVoyageStatus(Long voyageId) {
+    VoyageEtude voyage = voyageEtudeRepository.findById(voyageId)
+            .orElseThrow(() -> new RuntimeException("Voyage non trouvé"));
 
+    LocalDate today = LocalDate.now();
+    if ("EN_ATTENTE".equals(voyage.getStatut()) && today.isEqual(voyage.getDateVoyage())) {
+      voyage.setStatut("EN_COURS");
+      voyageEtudeRepository.save(voyage);
+    }
+  }
 
+  @Override
+  public void submitRapportVoyage(Long candidatureId, Map<String, MultipartFile> fichiers) {
+    Candidature candidature = candidatureRepository.findById(candidatureId)
+            .orElseThrow(() -> new RuntimeException("Candidature non trouvée"));
+
+    VoyageEtude voyage = candidature.getVoyageEtude();
+    if (voyage == null || !"EN_COURS".equals(voyage.getStatut())) {
+      throw new RuntimeException("Le voyage doit être en cours pour soumettre les justificatifs.");
+    }
+    if (LocalDate.now().isBefore(voyage.getDateRetour())) {
+      throw new RuntimeException("Le voyage n’est pas encore terminé (date de retour non atteinte).");
+    }
+
+    // Vérifier les fichiers requis
+    if (!fichiers.containsKey("carteEmbarquement") || !fichiers.containsKey("rapportVoyage")) {
+      throw new RuntimeException("La carte d’embarquement et le rapport du voyage sont requis.");
+    }
+
+    // Enregistrer les fichiers
+    for (Map.Entry<String, MultipartFile> entry : fichiers.entrySet()) {
+      saveDocument(entry.getValue(), entry.getKey(), candidature);
+    }
+
+    // Mettre à jour le statut du voyage
+    voyage.setStatut("TERMINÉ");
+    voyageEtudeRepository.save(voyage);
+  }
+
+  @Scheduled(cron = "0 0 0 * * *") // Tous les jours à minuit
+  public void updateAllVoyageStatuses() {
+    List<VoyageEtude> voyages = voyageEtudeRepository.findAll();
+    LocalDate today = LocalDate.now();
+
+    for (VoyageEtude voyage : voyages) {
+      if ("EN_ATTENTE".equals(voyage.getStatut()) && today.isEqual(voyage.getDateVoyage())) {
+        voyage.setStatut("EN_COURS");
+        voyageEtudeRepository.save(voyage);
+      }
+    }
+  }
 
 
 }
