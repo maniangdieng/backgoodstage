@@ -1,5 +1,9 @@
 package gestion_voyage.gestion_voyage.service.impl;
 
+import com.itextpdf.text.*;
+import com.itextpdf.text.pdf.PdfPCell;
+import com.itextpdf.text.pdf.PdfPTable;
+import com.itextpdf.text.pdf.PdfWriter;
 import gestion_voyage.gestion_voyage.dto.CandidatureDto;
 import gestion_voyage.gestion_voyage.dto.DocumentsDto;
 import gestion_voyage.gestion_voyage.dto.VoyageEtudeDto;
@@ -9,6 +13,7 @@ import gestion_voyage.gestion_voyage.repository.*;
 import gestion_voyage.gestion_voyage.service.CandidatureService;
 import gestion_voyage.gestion_voyage.service.VoyageEtudeService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
@@ -17,11 +22,13 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
@@ -31,8 +38,7 @@ public class CandidatureServiceImpl implements CandidatureService {
   private CandidatureRepository candidatureRepository;
 
   @Autowired
-  private VoyageEtudeRepository  voyageEtudeRepository;
-
+  private VoyageEtudeRepository voyageEtudeRepository;
 
   @Autowired
   private VoyageEtudeMapper voyageEtudeMapper;
@@ -48,7 +54,6 @@ public class CandidatureServiceImpl implements CandidatureService {
 
   @Autowired
   private VoyageEtudeService voyageEtudeService;
-
 
   // Chemin de stockage des fichiers
   private static final String UPLOAD_DIR = "C:\\uploads\\";
@@ -190,6 +195,7 @@ public class CandidatureServiceImpl implements CandidatureService {
     candidature.setVoyageEtude(voyage);
     candidatureRepository.save(candidature);
   }
+
   @Override
   public CandidatureDto getCandidatureById(Long id) {
     Candidature candidature = candidatureRepository.findById(id)
@@ -247,6 +253,7 @@ public class CandidatureServiceImpl implements CandidatureService {
     Candidature updatedCandidature = candidatureRepository.save(candidature);
     return mapToDto(updatedCandidature);
   }
+
   @Override
   public void deleteCandidature(Long id) {
     candidatureRepository.deleteById(id);
@@ -300,14 +307,17 @@ public class CandidatureServiceImpl implements CandidatureService {
     dto.setDateFin(candidature.getDateFin());
     dto.setStatut(candidature.getStatut());
     dto.setDestination(candidature.getDestination());
-    dto.setCommentaire(candidature.getCommentaire()); // Inclure le commentaire
+    dto.setCommentaire(candidature.getCommentaire());
     dto.setCohorteId(candidature.getCohorte().getId());
     dto.setPersonnelId(candidature.getPersonnel().getId());
-
-    // Ajout des informations supplémentaires
     dto.setPersonnelNom(candidature.getPersonnel().getNom());
     dto.setPersonnelPrenom(candidature.getPersonnel().getPrenom());
     dto.setCohorteAnnee(candidature.getCohorte().getAnnee());
+
+    // Ajouter le mappage de voyageEtude
+    if (candidature.getVoyageEtude() != null) {
+      dto.setVoyageEtude(voyageEtudeMapper.toDto(candidature.getVoyageEtude()));
+    }
 
     return dto;
   }
@@ -343,8 +353,6 @@ public class CandidatureServiceImpl implements CandidatureService {
     return document.getCheminFichier();
   }
 
-
-
   // Méthode pour sauvegarder un document
   private void saveDocument(MultipartFile file, String typeDocument, Candidature candidature) {
     try {
@@ -374,7 +382,6 @@ public class CandidatureServiceImpl implements CandidatureService {
     }
   }
 
-
   @Override
   public List<CandidatureDto> getCandidaturesByUtilisateur(Long personnelId) {
     return candidatureRepository.findByPersonnelId(personnelId).stream()
@@ -392,6 +399,7 @@ public class CandidatureServiceImpl implements CandidatureService {
     return mapToDto(updatedCandidature);
   }
 
+  @Override
   public void updateCandidatureStatus(Long candidatureId) {
     Candidature candidature = candidatureRepository.findById(candidatureId)
             .orElseThrow(() -> new RuntimeException("Candidature non trouvée"));
@@ -401,11 +409,9 @@ public class CandidatureServiceImpl implements CandidatureService {
       candidature.setStatut("EN_COURS");
       candidatureRepository.save(candidature);
     }
-
-
-
   }
 
+  @Override
   public void updateVoyageStatus(Long voyageId) {
     VoyageEtude voyage = voyageEtudeRepository.findById(voyageId)
             .orElseThrow(() -> new RuntimeException("Voyage non trouvé"));
@@ -458,6 +464,177 @@ public class CandidatureServiceImpl implements CandidatureService {
     }
   }
 
+  @Override
+  public void etablirArrete(Long candidatureId) {
+    try {
+      System.out.println("Tentative d'établir un arrêté pour la candidature : " + candidatureId);
+      Candidature candidature = candidatureRepository.findById(candidatureId)
+              .orElseThrow(() -> new RuntimeException("Candidature non trouvée"));
 
+      // Générer le PDF
+      byte[] pdfContent = generateArretePdf(candidature);
+
+      // Sauvegarder le fichier sur le disque
+      String fileName = "arrete_" + candidatureId + "_" + System.currentTimeMillis() + ".pdf";
+      String filePath = UPLOAD_DIR + fileName;
+
+      // Créer le répertoire de stockage s'il n'existe pas
+      File uploadDir = new File(UPLOAD_DIR);
+      if (!uploadDir.exists()) {
+        uploadDir.mkdirs();
+      }
+
+      // Écrire le contenu du PDF dans un fichier
+      java.nio.file.Files.write(java.nio.file.Paths.get(filePath), pdfContent);
+
+      // Enregistrer le document dans la base de données
+      Documents document = new Documents();
+      document.setCandidature(candidature);
+      document.setNomFichier(fileName);
+      document.setCheminFichier(filePath); // Stocker le chemin au lieu du contenu
+      document.setTypeDocument("ARRETE");
+      document.setStatut("EN_ATTENTE"); // Statut par défaut
+      documentsRepository.save(document);
+
+      System.out.println("Arrêté enregistré avec succès pour la candidature : " + candidatureId);
+    } catch (Exception e) {
+      System.err.println("Erreur lors de l'établissement de l'arrêté : " + e.getMessage());
+      throw new RuntimeException("Erreur lors de l'établissement de l'arrêté : " + e.getMessage());
+    }
+  }
+
+  @Override
+  public boolean checkArreteExiste(Long candidatureId) {
+    return documentsRepository.existsByCandidatureIdAndTypeDocument(candidatureId, "ARRETE");
+  }
+
+  @Override
+  public Resource downloadArrete(Long candidatureId) {
+    Documents document = documentsRepository.findByCandidatureIdAndTypeDocument(candidatureId, "ARRETE")
+            .orElseThrow(() -> new RuntimeException("Arrêté non trouvé"));
+
+    File file = new File(document.getCheminFichier());
+    if (!file.exists()) {
+      throw new RuntimeException("Fichier de l'arrêté non trouvé sur le disque.");
+    }
+
+    return new FileSystemResource(file);
+  }
+
+  private byte[] generateArretePdf(Candidature candidature) {
+    ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+    Document document = new Document();
+
+    try {
+      // Initialiser le PDF
+      PdfWriter.getInstance(document, outputStream);
+      document.open();
+
+      // Charger le logo
+      Image logo = Image.getInstance("src/main/resources/logouasz.png"); // Chemin vers le logo
+      logo.scaleToFit(100, 100); // Redimensionner le logo
+      logo.setAlignment(Element.ALIGN_CENTER);
+      document.add(logo);
+
+      // Ajouter un titre stylisé
+      Font titleFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 18);
+      Paragraph title = new Paragraph("Université Assane Seck de Ziguinchor (UASZ)", titleFont);
+      title.setAlignment(Element.ALIGN_CENTER);
+      document.add(title);
+
+      // Ajouter un sous-titre
+      Font subtitleFont = FontFactory.getFont(FontFactory.HELVETICA, 14);
+      Paragraph subtitle = new Paragraph("Direction des Ressources Humaines (DRH)", subtitleFont);
+      subtitle.setAlignment(Element.ALIGN_CENTER);
+      document.add(subtitle);
+
+      // Ajouter une ligne vide pour l'espacement
+      document.add(new Paragraph("\n"));
+
+      // Ajouter la référence de l'arrêté
+      Font referenceFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 12);
+      Paragraph reference = new Paragraph("Référence : Arrêté N° 2023/DRH/001", referenceFont);
+      reference.setAlignment(Element.ALIGN_CENTER);
+      document.add(reference);
+
+      // Ajouter une ligne vide pour l'espacement
+      document.add(new Paragraph("\n"));
+
+      // Ajouter le texte de l'arrêté
+      Font textFont = FontFactory.getFont(FontFactory.HELVETICA, 12);
+      document.add(new Paragraph("Le Directeur des Ressources Humaines,", textFont));
+      document.add(new Paragraph("\n"));
+
+      document.add(new Paragraph("Vu le décret N° 2023-001 portant organisation des voyages d'études et missions des enseignants de l'Université Assane Seck de Ziguinchor ;", textFont));
+      document.add(new Paragraph("Vu la demande de voyage d'études déposée par l'enseignant concerné ;", textFont));
+      document.add(new Paragraph("Vu la liste des candidats sélectionnés pour les voyages d'études et missions approuvée par la Direction de la Recherche et de la Coopération (DRC) ;", textFont));
+      document.add(new Paragraph("Vu la disponibilité des fonds alloués par la Direction des Finances et de la Comptabilité (DFC) ;", textFont));
+      document.add(new Paragraph("\n"));
+
+      document.add(new Paragraph("Arrête :", textFont));
+      document.add(new Paragraph("\n"));
+
+      // Ajouter les articles sous forme de tableau pour une meilleure présentation
+      PdfPTable table = new PdfPTable(1);
+      table.setWidthPercentage(100);
+
+      PdfPCell cell = new PdfPCell(new Paragraph("Article 1 :", textFont));
+      cell.setBorder(PdfPCell.NO_BORDER);
+      table.addCell(cell);
+
+      cell = new PdfPCell(new Paragraph("Monsieur/Madame " + candidature.getPersonnel().getNom() + " " + candidature.getPersonnel().getPrenom() +
+              ", enseignant(e) à l'Université Assane Seck de Ziguinchor, est autorisé(e) à effectuer un voyage d'études/mission à " +
+              candidature.getDestination() + " du " + candidature.getDateDebut() + " au " + candidature.getDateFin() + ".", textFont));
+      cell.setBorder(PdfPCell.NO_BORDER);
+      table.addCell(cell);
+
+      cell = new PdfPCell(new Paragraph("Article 2 :", textFont));
+      cell.setBorder(PdfPCell.NO_BORDER);
+      table.addCell(cell);
+
+      cell = new PdfPCell(new Paragraph("Ce voyage s'inscrit dans le cadre de la cohorte " + candidature.getCohorte().getAnnee() +
+              " pour l'année académique " + candidature.getCohorte().getAnnee() + ".", textFont));
+      cell.setBorder(PdfPCell.NO_BORDER);
+      table.addCell(cell);
+
+      cell = new PdfPCell(new Paragraph("Article 3 :", textFont));
+      cell.setBorder(PdfPCell.NO_BORDER);
+      table.addCell(cell);
+
+      cell = new PdfPCell(new Paragraph("Les frais de voyage, d'hébergement et de restauration seront pris en charge par l'Université Assane Seck de Ziguinchor, conformément aux dispositions budgétaires en vigueur.", textFont));
+      cell.setBorder(PdfPCell.NO_BORDER);
+      table.addCell(cell);
+
+      cell = new PdfPCell(new Paragraph("Article 4 :", textFont));
+      cell.setBorder(PdfPCell.NO_BORDER);
+      table.addCell(cell);
+
+      cell = new PdfPCell(new Paragraph("À l'issue du voyage, l'enseignant(e) devra remettre un rapport détaillé de ses activités à la Direction de la Recherche et de la Coopération (DRC) dans un délai de 30 jours.", textFont));
+      cell.setBorder(PdfPCell.NO_BORDER);
+      table.addCell(cell);
+
+      cell = new PdfPCell(new Paragraph("Article 5 :", textFont));
+      cell.setBorder(PdfPCell.NO_BORDER);
+      table.addCell(cell);
+
+      cell = new PdfPCell(new Paragraph("Le présent arrêté sera notifié à l'enseignant(e) concerné(e), à la Direction de la Recherche et de la Coopération (DRC), à la Direction des Finances et de la Comptabilité (DFC), et à la Direction Générale de l'Université.", textFont));
+      cell.setBorder(PdfPCell.NO_BORDER);
+      table.addCell(cell);
+
+      document.add(table);
+
+      // Ajouter la date et la signature
+      document.add(new Paragraph("\n"));
+      document.add(new Paragraph("Fait à Ziguinchor, le " + LocalDate.now(), textFont));
+      document.add(new Paragraph("Le Directeur des Ressources Humaines,", textFont));
+      document.add(new Paragraph("Dr. Inconnu Inconnu", textFont));
+      document.add(new Paragraph("Signature", textFont));
+
+      document.close();
+    } catch (DocumentException | IOException e) {
+      throw new RuntimeException("Erreur lors de la génération du PDF : " + e.getMessage());
+    }
+
+    return outputStream.toByteArray();
+  }
 }
-
