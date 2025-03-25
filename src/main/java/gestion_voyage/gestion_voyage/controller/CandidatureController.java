@@ -130,29 +130,51 @@
 
     // Mettre à jour une candidature existante
     // Dans CandidatureController
-    @PutMapping("/{id}")
-    public ResponseEntity<?> updateCandidature(@PathVariable Long id, @RequestBody CandidatureDto candidatureDto) {
-      // Récupérer la candidature existante
-      CandidatureDto existingCandidature = candidatureService.getCandidatureById(id);
-      if (existingCandidature == null) {
-        return ResponseEntity.notFound().build();
-      }
+    @PutMapping(value = "/{id}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<?> updateCandidature(
+            @PathVariable Long id,
+            @RequestPart("candidature") String candidatureJson,
+            @RequestPart(value = "files", required = false) List<MultipartFile> files) {
+        try {
+            // Convertir le JSON en CandidatureDto
+            ObjectMapper objectMapper = new ObjectMapper();
+            objectMapper.registerModule(new JavaTimeModule());
+            CandidatureDto candidatureDto = objectMapper.readValue(candidatureJson, CandidatureDto.class);
 
-      // Récupérer la cohorte associée
-      Optional<Cohorte> cohorte = cohorteRepository.findById(existingCandidature.getCohorteId());
-      if (cohorte.isEmpty()) {
-        return ResponseEntity.badRequest().body("Cohorte non trouvée.");
-      }
+            // Vérifier l'existence de la candidature
+            CandidatureDto existingCandidature = candidatureService.getCandidatureById(id);
+            if (existingCandidature == null) {
+                return ResponseEntity.notFound().build();
+            }
 
-      // Vérifier si la date de clôture est dépassée
-      LocalDate aujourdHui = LocalDate.now();
-      if (aujourdHui.isAfter(cohorte.get().getDateClotureDef())) {
-        return ResponseEntity.badRequest().body("La date de clôture de la cohorte est passée. Modification impossible.");
-      }
+            // Vérifier la cohorte
+            Optional<Cohorte> cohorte = cohorteRepository.findById(existingCandidature.getCohorteId());
+            if (cohorte.isEmpty()) {
+                return ResponseEntity.badRequest().body("Cohorte non trouvée.");
+            }
 
-      // Mettre à jour la candidature
-      CandidatureDto updatedCandidature = candidatureService.updateCandidature(id, candidatureDto);
-      return ResponseEntity.ok(updatedCandidature);
+            // Vérifier si la date de clôture est dépassée
+            LocalDate aujourdHui = LocalDate.now();
+            if (aujourdHui.isAfter(cohorte.get().getDateClotureDef())) {
+                return ResponseEntity.badRequest().body("La date de clôture de la cohorte est passée. Modification impossible.");
+            }
+
+            // Ajouter les fichiers au DTO si présents
+            if (files != null && !files.isEmpty()) {
+                Map<String, MultipartFile> fichiersMap = new HashMap<>();
+                for (MultipartFile file : files) {
+                    // Utiliser un nom unique ou basé sur le type de fichier si nécessaire
+                    fichiersMap.put(file.getOriginalFilename(), file);
+                }
+                candidatureDto.setFichiers(fichiersMap);
+            }
+
+            // Mettre à jour la candidature
+            CandidatureDto updatedCandidature = candidatureService.updateCandidature(id, candidatureDto);
+            return ResponseEntity.ok(updatedCandidature);
+        } catch (IOException e) {
+            return ResponseEntity.badRequest().body("Erreur lors de la conversion JSON : " + e.getMessage());
+        }
     }
 
     // Supprimer une candidature par ID
