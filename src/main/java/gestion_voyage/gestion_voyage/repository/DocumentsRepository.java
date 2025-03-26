@@ -39,4 +39,6 @@ public interface DocumentsRepository extends JpaRepository<Documents,  Long> {
 
   // Méthode personnalisée pour récupérer un document de type "ARRETE" pour une candidature
   Optional<Documents> findByCandidatureIdAndTypeDocument(Long candidatureId, String typeDocument);
+
+  boolean existsByCandidatureIdAndTypeDocumentIn(Long id, List<String> arrete);
 }

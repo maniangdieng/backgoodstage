@@ -7,42 +7,48 @@ import com.itextpdf.text.pdf.PdfWriter;
 import gestion_voyage.gestion_voyage.dto.CandidatureDto;
 import gestion_voyage.gestion_voyage.dto.DocumentsDto;
 import gestion_voyage.gestion_voyage.dto.VoyageEtudeDto;
-import gestion_voyage.gestion_voyage.entity.Candidature;
-import gestion_voyage.gestion_voyage.entity.Cohorte;
-import gestion_voyage.gestion_voyage.entity.Documents;
-import gestion_voyage.gestion_voyage.entity.Personnel;
-import gestion_voyage.gestion_voyage.repository.CandidatureRepository;
-import gestion_voyage.gestion_voyage.repository.CohorteRepository;
-import gestion_voyage.gestion_voyage.repository.DocumentsRepository;
-import gestion_voyage.gestion_voyage.repository.PersonnelRepository;
+import gestion_voyage.gestion_voyage.entity.*;
+import gestion_voyage.gestion_voyage.mapper.VoyageEtudeMapper;
+import gestion_voyage.gestion_voyage.repository.*;
 import gestion_voyage.gestion_voyage.service.CandidatureService;
 import gestion_voyage.gestion_voyage.service.VoyageEtudeService;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.common.PDRectangle;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
-import java.net.MalformedURLException;
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
-import com.itextpdf.text.pdf.PdfWriter;
-
-import java.io.ByteArrayOutputStream;
 @Service
 public class CandidatureServiceImpl implements CandidatureService {
 
   @Autowired
   private CandidatureRepository candidatureRepository;
+
+  @Autowired
+  private VoyageEtudeRepository voyageEtudeRepository;
+
+  @Autowired
+  private VoyageEtudeMapper voyageEtudeMapper;
 
   @Autowired
   private DocumentsRepository documentsRepository;
@@ -56,74 +62,86 @@ public class CandidatureServiceImpl implements CandidatureService {
   @Autowired
   private VoyageEtudeService voyageEtudeService;
 
-
   // Chemin de stockage des fichiers
   private static final String UPLOAD_DIR = "C:\\uploads\\";
 
   @Override
   public CandidatureDto createCandidature(CandidatureDto candidatureDto) {
-    // Vérifier que la cohorte et le personnel existent
     Cohorte cohorte = cohorteRepository.findById(candidatureDto.getCohorteId())
             .orElseThrow(() -> new RuntimeException("Cohorte non trouvée"));
     Personnel personnel = personnelRepository.findById(candidatureDto.getPersonnelId())
             .orElseThrow(() -> new RuntimeException("Personnel non trouvé"));
 
-    // Vérifier que la date de dépôt est dans l'intervalle de la cohorte
+    // Vérifier les contraintes d'éligibilité
+    checkEligibility(personnel, cohorte);
+
+    // Vérifier la période de la cohorte
     LocalDate dateDepot = candidatureDto.getDateDepot();
     LocalDate dateOuverture = cohorte.getDateOuverture();
     LocalDate dateCloture = cohorte.getDateClotureDef();
 
-    if (dateDepot.isBefore(dateOuverture)) {
-      throw new RuntimeException("La date de dépôt est antérieure à la date d'ouverture de la cohorte.");
+    if (dateDepot.isBefore(dateOuverture) || dateDepot.isAfter(dateCloture)) {
+      throw new RuntimeException("La date de dépôt est hors de la période de la cohorte.");
     }
-    if (dateDepot.isAfter(dateCloture)) {
-      throw new RuntimeException("La date de dépôt est postérieure à la date de clôture de la cohorte.");
-    }
-
-    // Déterminer si l'enseignant est nouveau ou ancien
-    boolean isNouveau = isEnseignantNouveau(candidatureDto.getPersonnelId());
 
     // Vérifier les documents requis
-    if (isNouveau) {
-      if (candidatureDto.getFichiers() == null || !candidatureDto.getFichiers().containsKey("arreteTitularisation")) {
-        throw new RuntimeException("Un arrêté de titularisation est requis pour les nouveaux enseignants.");
-      }
-
-    } else {
-        if (candidatureDto.getFichiers() == null || !candidatureDto.getFichiers().containsKey("justificatifPrecedentVoyage")){
-        throw new RuntimeException("Un justificatif du précédent voyage est requis pour les anciens enseignants.");
-      }
+    boolean isNouveau = isEnseignantNouveau(candidatureDto.getPersonnelId());
+    if (isNouveau && (candidatureDto.getFichiers() == null || !candidatureDto.getFichiers().containsKey("arreteTitularisation"))) {
+      throw new RuntimeException("Un arrêté de titularisation est requis pour les nouveaux enseignants.");
+    } else if (!isNouveau && (candidatureDto.getFichiers() == null || !candidatureDto.getFichiers().containsKey("justificatifPrecedentVoyage"))) {
+      throw new RuntimeException("Un justificatif du précédent voyage est requis pour les anciens enseignants.");
     }
 
-    // Mapper le DTO vers l'entité
+    // Créer la candidature
     Candidature candidature = new Candidature();
     candidature.setDateDepot(candidatureDto.getDateDepot());
     candidature.setDateDebut(candidatureDto.getDateDebut());
     candidature.setDateFin(candidatureDto.getDateFin());
-    candidature.setStatut(candidatureDto.getStatut() != null ? candidatureDto.getStatut() : "EN_ATTENTE"); // Valeur par défaut
+    candidature.setStatut("EN_ATTENTE"); // Statut initial de la candidature
     candidature.setDestination(candidatureDto.getDestination());
     candidature.setCohorte(cohorte);
     candidature.setPersonnel(personnel);
 
-    // Enregistrer en base de données
     Candidature savedCandidature = candidatureRepository.save(candidature);
 
-    // Gérer les fichiers
+    // Sauvegarder les fichiers
     if (candidatureDto.getFichiers() != null && !candidatureDto.getFichiers().isEmpty()) {
       for (Map.Entry<String, MultipartFile> entry : candidatureDto.getFichiers().entrySet()) {
-        String typeDocument = entry.getKey();
-        MultipartFile file = entry.getValue();
-        saveDocument(file, typeDocument, savedCandidature);
+        saveDocument(entry.getValue(), entry.getKey(), savedCandidature);
       }
     }
 
-    // Mapper l'entité sauvegardée vers le DTO pour la réponse
     return mapToDto(savedCandidature);
   }
 
+  private void checkEligibility(Personnel personnel, Cohorte nouvelleCohorte) {
+    List<Candidature> candidatures = candidatureRepository.findByPersonnelId(personnel.getId());
+
+    // Vérifier les candidatures en attente
+    if (candidatures.stream().anyMatch(c -> "EN_ATTENTE".equals(c.getStatut()))) {
+      throw new RuntimeException("Vous avez une candidature en attente. Nouvelle soumission interdite.");
+    }
+
+    // Vérifier les voyages en attente ou en cours
+    for (Candidature c : candidatures) {
+      if (c.getVoyageEtude() != null && ("EN_ATTENTE".equals(c.getVoyageEtude().getStatut()) || "EN_COURS".equals(c.getVoyageEtude().getStatut()))) {
+        throw new RuntimeException("Vous avez un voyage en attente ou en cours. Nouvelle soumission interdite.");
+      }
+    }
+
+    // Vérifier les cohortes consécutives
+    int anneeNouvelleCohorte = nouvelleCohorte.getAnnee();
+    for (Candidature c : candidatures) {
+      int anneePrecedente = c.getCohorte().getAnnee();
+      if (anneeNouvelleCohorte == anneePrecedente + 1) {
+        throw new RuntimeException("Candidatures pour deux cohortes consécutives interdites. Attendez " + (anneePrecedente + 2) + ".");
+      }
+    }
+  }
+
   private boolean isEnseignantNouveau(Long personnelId) {
-    // Vérifier si l'enseignant a déjà effectué un voyage validé
-    return candidatureRepository.countByPersonnelIdAndStatut(personnelId, "Voyage terminé") == 0;
+    return candidatureRepository.findByPersonnelId(personnelId).stream()
+            .noneMatch(c -> c.getVoyageEtude() != null && "TERMINÉ".equals(c.getVoyageEtude().getStatut()));
   }
 
   private boolean areDocumentsValides(Long candidatureId) {
@@ -144,23 +162,45 @@ public class CandidatureServiceImpl implements CandidatureService {
     Candidature candidature = candidatureRepository.findById(candidatureId)
             .orElseThrow(() -> new RuntimeException("Candidature non trouvée"));
 
-    // Mettre à jour le statut de tous les documents associés à la candidature
+    // Vérifier que la candidature est en attente
+    if (!"EN_ATTENTE".equals(candidature.getStatut())) {
+      throw new RuntimeException("La candidature doit être en attente pour être validée.");
+    }
+
+    // Valider les documents
     List<Documents> documents = documentsRepository.findByCandidatureId(candidatureId);
     for (Documents document : documents) {
       document.setStatut("VALIDÉ");
       documentsRepository.save(document);
     }
 
-    // Vérifier si un voyage existe déjà pour cette candidature
-    if (candidature.getVoyageEtude() != null) {
-      throw new RuntimeException("Un voyage existe déjà pour cette candidature.");
-    }
-
     // Mettre à jour le statut de la candidature
     candidature.setStatut("VALIDÉ");
     candidatureRepository.save(candidature);
 
+    // Créer le voyage
     createVoyageEtudeFromCandidature(candidature);
+  }
+
+  private void createVoyageEtudeFromCandidature(Candidature candidature) {
+    VoyageEtudeDto voyageEtudeDto = new VoyageEtudeDto();
+    voyageEtudeDto.setDateCreation(LocalDate.now());
+    voyageEtudeDto.setAnnee(candidature.getCohorte().getAnnee());
+    voyageEtudeDto.setObservation("Voyage créé après validation de la candidature.");
+    voyageEtudeDto.setDateVoyage(candidature.getDateDebut());
+    voyageEtudeDto.setDateRetour(candidature.getDateFin());
+    voyageEtudeDto.setStatut("EN_ATTENTE"); // Statut initial du voyage
+    voyageEtudeDto.setSession("Session " + LocalDate.now().getYear());
+
+    // Créer le voyage via le service
+    VoyageEtudeDto createdVoyageDto = voyageEtudeService.create(voyageEtudeDto);
+
+    // Convertir le DTO en entité
+    VoyageEtude voyage = voyageEtudeMapper.toEntity(createdVoyageDto);
+
+    // Lier le voyage à la candidature
+    candidature.setVoyageEtude(voyage);
+    candidatureRepository.save(candidature);
   }
 
   @Override
@@ -220,6 +260,7 @@ public class CandidatureServiceImpl implements CandidatureService {
     Candidature updatedCandidature = candidatureRepository.save(candidature);
     return mapToDto(updatedCandidature);
   }
+
   @Override
   public void deleteCandidature(Long id) {
     candidatureRepository.deleteById(id);
@@ -273,14 +314,17 @@ public class CandidatureServiceImpl implements CandidatureService {
     dto.setDateFin(candidature.getDateFin());
     dto.setStatut(candidature.getStatut());
     dto.setDestination(candidature.getDestination());
-    dto.setCommentaire(candidature.getCommentaire()); // Inclure le commentaire
+    dto.setCommentaire(candidature.getCommentaire());
     dto.setCohorteId(candidature.getCohorte().getId());
     dto.setPersonnelId(candidature.getPersonnel().getId());
-
-    // Ajout des informations supplémentaires
     dto.setPersonnelNom(candidature.getPersonnel().getNom());
     dto.setPersonnelPrenom(candidature.getPersonnel().getPrenom());
     dto.setCohorteAnnee(candidature.getCohorte().getAnnee());
+
+    // Ajouter le mappage de voyageEtude
+    if (candidature.getVoyageEtude() != null) {
+      dto.setVoyageEtude(voyageEtudeMapper.toDto(candidature.getVoyageEtude()));
+    }
 
     return dto;
   }
@@ -316,8 +360,6 @@ public class CandidatureServiceImpl implements CandidatureService {
     return document.getCheminFichier();
   }
 
-
-
   // Méthode pour sauvegarder un document
   private void saveDocument(MultipartFile file, String typeDocument, Candidature candidature) {
     try {
@@ -347,7 +389,6 @@ public class CandidatureServiceImpl implements CandidatureService {
     }
   }
 
-
   @Override
   public List<CandidatureDto> getCandidaturesByUtilisateur(Long personnelId) {
     return candidatureRepository.findByPersonnelId(personnelId).stream()
@@ -365,59 +406,127 @@ public class CandidatureServiceImpl implements CandidatureService {
     return mapToDto(updatedCandidature);
   }
 
-  // Méthode pour créer un voyage d'étude à partir d'une candidature validée
-  private void createVoyageEtudeFromCandidature(Candidature candidature) {
-    VoyageEtudeDto voyageEtudeDto = new VoyageEtudeDto();
-    voyageEtudeDto.setDateCreation(LocalDate.now()); // Date de création du voyage
-    voyageEtudeDto.setAnnee(candidature.getCohorte().getAnnee()); // Année de la cohorte
-    voyageEtudeDto.setObservation("Voyage créé automatiquement après validation de la candidature.");
-    voyageEtudeDto.setDateVoyage(candidature.getDateDebut()); // Date de début du voyage
-    voyageEtudeDto.setDateRetour(candidature.getDateFin()); // Date de retour du voyage
-    voyageEtudeDto.setStatut("EN_ATTENTE"); // Statut initial du voyage
-    voyageEtudeDto.setSession("Session " + LocalDate.now().getYear()); // Session du voyage
+  @Override
+  public void updateCandidatureStatus(Long candidatureId) {
+    Candidature candidature = candidatureRepository.findById(candidatureId)
+            .orElseThrow(() -> new RuntimeException("Candidature non trouvée"));
 
-    // Créer le voyage d'étude
-    voyageEtudeService.create(voyageEtudeDto);
+    LocalDate today = LocalDate.now();
+    if ("EN_ATTENTE".equals(candidature.getStatut()) && today.isEqual(candidature.getDateDebut())) {
+      candidature.setStatut("EN_COURS");
+      candidatureRepository.save(candidature);
+    }
   }
 
-  // Établir un arrêté
+  @Override
+  public void updateVoyageStatus(Long voyageId) {
+    VoyageEtude voyage = voyageEtudeRepository.findById(voyageId)
+            .orElseThrow(() -> new RuntimeException("Voyage non trouvé"));
+
+    LocalDate today = LocalDate.now();
+    if ("EN_ATTENTE".equals(voyage.getStatut()) && today.isEqual(voyage.getDateVoyage())) {
+      voyage.setStatut("EN_COURS");
+      voyageEtudeRepository.save(voyage);
+    }
+  }
+
+  @Override
+  public void submitRapportVoyage(Long candidatureId, Map<String, MultipartFile> fichiers) {
+    Candidature candidature = candidatureRepository.findById(candidatureId)
+            .orElseThrow(() -> new RuntimeException("Candidature non trouvée"));
+
+    VoyageEtude voyage = candidature.getVoyageEtude();
+    if (voyage == null || !"EN_COURS".equals(voyage.getStatut())) {
+      throw new RuntimeException("Le voyage doit être en cours pour soumettre les justificatifs.");
+    }
+    if (LocalDate.now().isBefore(voyage.getDateRetour())) {
+      throw new RuntimeException("Le voyage n’est pas encore terminé (date de retour non atteinte).");
+    }
+
+    // Vérifier les fichiers requis
+    if (!fichiers.containsKey("carteEmbarquement") || !fichiers.containsKey("rapportVoyage")) {
+      throw new RuntimeException("La carte d’embarquement et le rapport du voyage sont requis.");
+    }
+
+    // Enregistrer les fichiers
+    for (Map.Entry<String, MultipartFile> entry : fichiers.entrySet()) {
+      saveDocument(entry.getValue(), entry.getKey(), candidature);
+    }
+
+    // Mettre à jour le statut du voyage
+    voyage.setStatut("TERMINÉ");
+    voyageEtudeRepository.save(voyage);
+  }
+
+  @Scheduled(cron = "0 0 0 * * *") // Tous les jours à minuit
+  public void updateAllVoyageStatuses() {
+    List<VoyageEtude> voyages = voyageEtudeRepository.findAll();
+    LocalDate today = LocalDate.now();
+
+    for (VoyageEtude voyage : voyages) {
+      if ("EN_ATTENTE".equals(voyage.getStatut()) && today.isEqual(voyage.getDateVoyage())) {
+        voyage.setStatut("EN_COURS");
+        voyageEtudeRepository.save(voyage);
+      }
+    }
+  }
+
+  @Override
   public void etablirArrete(Long candidatureId) {
     try {
       System.out.println("Tentative d'établir un arrêté pour la candidature : " + candidatureId);
       Candidature candidature = candidatureRepository.findById(candidatureId)
-        .orElseThrow(() -> new RuntimeException("Candidature non trouvée"));
+              .orElseThrow(() -> new RuntimeException("Candidature non trouvée"));
 
-      // Générer le PDF (exemple simplifié)
+      // Générer le PDF
       byte[] pdfContent = generateArretePdf(candidature);
 
-      // Enregistrer le PDF dans la table des documents
+      // Sauvegarder le fichier sur le disque
+      String fileName = "arrete_" + candidatureId + "_" + System.currentTimeMillis() + ".pdf";
+      String filePath = UPLOAD_DIR + fileName;
+
+      // Créer le répertoire de stockage s'il n'existe pas
+      File uploadDir = new File(UPLOAD_DIR);
+      if (!uploadDir.exists()) {
+        uploadDir.mkdirs();
+      }
+
+      // Écrire le contenu du PDF dans un fichier
+      java.nio.file.Files.write(java.nio.file.Paths.get(filePath), pdfContent);
+
+      // Enregistrer le document dans la base de données
       Documents document = new Documents();
       document.setCandidature(candidature);
-      document.setNomFichier("arrete_" + candidatureId + ".pdf");
-      document.setContenu(pdfContent);
+      document.setNomFichier(fileName);
+      document.setCheminFichier(filePath); // Stocker le chemin au lieu du contenu
       document.setTypeDocument("ARRETE");
-      document.setStatut("EN_ATTENTE"); // Définir un statut par défaut
+      document.setStatut("EN_ATTENTE"); // Statut par défaut
       documentsRepository.save(document);
+
       System.out.println("Arrêté enregistré avec succès pour la candidature : " + candidatureId);
     } catch (Exception e) {
       System.err.println("Erreur lors de l'établissement de l'arrêté : " + e.getMessage());
       throw new RuntimeException("Erreur lors de l'établissement de l'arrêté : " + e.getMessage());
     }
-  }  // Vérifier si un arrêté existe
+  }
+
+  @Override
   public boolean checkArreteExiste(Long candidatureId) {
     return documentsRepository.existsByCandidatureIdAndTypeDocument(candidatureId, "ARRETE");
   }
 
-  // Télécharger l'arrêté
+  @Override
   public Resource downloadArrete(Long candidatureId) {
     Documents document = documentsRepository.findByCandidatureIdAndTypeDocument(candidatureId, "ARRETE")
-      .orElseThrow(() -> new RuntimeException("Arrêté non trouvé"));
+            .orElseThrow(() -> new RuntimeException("Arrêté non trouvé"));
 
-    return new ByteArrayResource(document.getContenu());
+    File file = new File(document.getCheminFichier());
+    if (!file.exists()) {
+      throw new RuntimeException("Fichier de l'arrêté non trouvé sur le disque.");
+    }
+
+    return new FileSystemResource(file);
   }
-
-  // Générer le PDF (exemple simplifié)
-
 
   private byte[] generateArretePdf(Candidature candidature) {
     ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
@@ -481,8 +590,8 @@ public class CandidatureServiceImpl implements CandidatureService {
       table.addCell(cell);
 
       cell = new PdfPCell(new Paragraph("Monsieur/Madame " + candidature.getPersonnel().getNom() + " " + candidature.getPersonnel().getPrenom() +
-        ", enseignant(e) à l'Université Assane Seck de Ziguinchor, est autorisé(e) à effectuer un voyage d'études/mission à " +
-        candidature.getDestination() + " du " + candidature.getDateDebut() + " au " + candidature.getDateFin() + ".", textFont));
+              ", enseignant(e) à l'Université Assane Seck de Ziguinchor, est autorisé(e) à effectuer un voyage d'études/mission à " +
+              candidature.getDestination() + " du " + candidature.getDateDebut() + " au " + candidature.getDateFin() + ".", textFont));
       cell.setBorder(PdfPCell.NO_BORDER);
       table.addCell(cell);
 
@@ -491,7 +600,7 @@ public class CandidatureServiceImpl implements CandidatureService {
       table.addCell(cell);
 
       cell = new PdfPCell(new Paragraph("Ce voyage s'inscrit dans le cadre de la cohorte " + candidature.getCohorte().getAnnee() +
-        " pour l'année académique " + candidature.getCohorte().getAnnee() + ".", textFont));
+              " pour l'année académique " + candidature.getCohorte().getAnnee() + ".", textFont));
       cell.setBorder(PdfPCell.NO_BORDER);
       table.addCell(cell);
 
@@ -538,6 +647,276 @@ public class CandidatureServiceImpl implements CandidatureService {
 
 
 
+  public byte[] etablirArreteCollectif(List<Long> candidatureIds) {
+    // 1. Vérifier que toutes les candidatures sont valides et sans arrêté
+    List<Candidature> candidatures = candidatureRepository.findAllById(candidatureIds);
+
+    if (candidatures.isEmpty()) {
+      throw new RuntimeException("Aucune candidature sélectionnée");
+    }
+
+    for (Candidature c : candidatures) {
+      if (!"VALIDÉ".equals(c.getStatut())) {
+        throw new RuntimeException("La candidature " + c.getId() + " n'est pas validée");
+      }
+      if (checkArreteExiste(c.getId())) {
+        throw new RuntimeException("La candidature " + c.getId() + " a déjà un arrêté");
+      }
+    }
+
+    // 2. Générer le PDF collectif
+    byte[] pdfContent = generateArreteCollectifPdf(candidatures);
+
+    // 3. Sauvegarder le fichier sur le disque
+    String fileName = "arrete_collectif_" + System.currentTimeMillis() + ".pdf";
+    String filePath = UPLOAD_DIR + fileName;
+
+    try {
+      // Créer le répertoire de stockage s'il n'existe pas
+      File uploadDir = new File(UPLOAD_DIR);
+      if (!uploadDir.exists()) {
+        uploadDir.mkdirs();
+      }
+
+      // Écrire le contenu du PDF dans un fichier
+      java.nio.file.Files.write(java.nio.file.Paths.get(filePath), pdfContent);
+
+      // 4. Créer une entrée document pour chaque candidature
+      for (Candidature candidature : candidatures) {
+        Documents document = new Documents();
+        document.setNomFichier(fileName);
+        document.setCheminFichier(filePath); // Même chemin pour tous
+        document.setTypeDocument("ARRETE_COLLECTIF");
+        document.setStatut("VALIDÉ");
+        document.setCandidature(candidature); // Lien différent pour chaque candidature
+
+        // Si les candidatures partagent le même voyage d'étude
+        if (candidature.getVoyageEtude() != null) {
+          document.setVoyageEtude(candidature.getVoyageEtude());
+        }
+
+        documentsRepository.save(document);
+      }
+
+      return pdfContent;
+    } catch (Exception e) {
+      throw new RuntimeException("Erreur lors de l'enregistrement de l'arrêté collectif", e);
+    }
+  }
+  private byte[] generateArreteCollectifPdf(List<Candidature> candidatures) {
+    try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+         PDDocument document = new PDDocument()) {
+
+      PDPage page = new PDPage(PDRectangle.A4);
+      document.addPage(page);
+
+      try (PDPageContentStream contentStream = new PDPageContentStream(document, page)) {
+        // Charger la police (ajoutez vos polices personnalisées si nécessaire)
+        PDType1Font titleFont = PDType1Font.HELVETICA_BOLD;
+        PDType1Font headerFont = PDType1Font.HELVETICA_BOLD;
+        PDType1Font textFont = PDType1Font.HELVETICA;
+
+        // ========== EN-TÊTE ==========
+        // Logo (vous devrez charger votre image)
+
+            PDImageXObject logo = PDImageXObject.createFromFile("src/main/resources/logouasz.png", document);
+            contentStream.drawImage(logo, 250, 750, 100, 100);
+
+
+        // Titre de l'université
+        contentStream.beginText();
+        contentStream.setFont(titleFont, 18);
+        contentStream.newLineAtOffset(100, 750);
+        contentStream.showText("Université Assane Seck de Ziguinchor (UASZ)");
+        contentStream.endText();
+
+        // Sous-titre DRH
+        contentStream.beginText();
+        contentStream.setFont(titleFont, 14);
+        contentStream.newLineAtOffset(100, 720);
+        contentStream.showText("Direction des Ressources Humaines (DRH)");
+        contentStream.endText();
+
+        // Référence de l'arrêté
+        contentStream.beginText();
+        contentStream.setFont(headerFont, 12);
+        contentStream.newLineAtOffset(100, 690);
+
+        contentStream.endText();
+
+        // ========== CORPS DE L'ARRÊTÉ ==========
+        // Préambule
+        contentStream.beginText();
+        contentStream.setFont(textFont, 12);
+        contentStream.newLineAtOffset(100, 650);
+        contentStream.showText("Le Directeur des Ressources Humaines,");
+        contentStream.endText();
+
+        contentStream.beginText();
+        contentStream.newLineAtOffset(100, 630);
+        contentStream.showText("Vu le décret N° 2023-001 portant organisation des voyages d'études et missions des enseignants;");
+        contentStream.endText();
+
+        contentStream.beginText();
+        contentStream.newLineAtOffset(100, 610);
+        contentStream.showText("Vu les demandes de voyages d'études déposées par les enseignants concernés;");
+        contentStream.endText();
+
+        contentStream.beginText();
+        contentStream.newLineAtOffset(100, 590);
+        contentStream.showText("Vu la liste des candidats sélectionnés approuvée par la DRC;");
+        contentStream.endText();
+
+        contentStream.beginText();
+        contentStream.newLineAtOffset(100, 570);
+        contentStream.showText("Vu la disponibilité des fonds alloués par la DFC;");
+        contentStream.endText();
+
+        contentStream.beginText();
+        contentStream.newLineAtOffset(100, 550);
+        contentStream.showText("Arrête :");
+        contentStream.endText();
+
+        // Article 1 - Liste des bénéficiaires
+        contentStream.beginText();
+        contentStream.setFont(headerFont, 12);
+        contentStream.newLineAtOffset(100, 520);
+        contentStream.showText("Article 1 :");
+        contentStream.endText();
+
+        contentStream.beginText();
+        contentStream.setFont(textFont, 12);
+        contentStream.newLineAtOffset(100, 500);
+        contentStream.showText("Les enseignants suivants sont autorisés à effectuer des voyages d'études/missions :");
+        contentStream.endText();
+
+        int yPosition = 480;
+        for (Candidature c : candidatures) {
+          contentStream.beginText();
+          contentStream.setFont(textFont, 12);
+          contentStream.newLineAtOffset(120, yPosition);
+          contentStream.showText("- " + c.getPersonnel().getNom() + " " + c.getPersonnel().getPrenom() +
+            " : " + c.getDestination() +
+            " (" + formatDate(c.getDateDebut()) +
+            " - " + formatDate(c.getDateFin()) + ")");
+          contentStream.endText();
+          yPosition -= 20;
+
+          if (yPosition < 100) { // Gérer le saut de page si nécessaire
+            contentStream.close();
+            PDPage newPage = new PDPage(PDRectangle.A4);
+            document.addPage(newPage);
+
+            yPosition = 750;
+          }
+        }
+
+        // Article 2 - Cadre du voyage
+        yPosition -= 30;
+        contentStream.beginText();
+        contentStream.setFont(headerFont, 12);
+        contentStream.newLineAtOffset(100, yPosition);
+        contentStream.showText("Article 2 :");
+        contentStream.endText();
+
+        contentStream.beginText();
+        contentStream.setFont(textFont, 12);
+        contentStream.newLineAtOffset(100, yPosition - 20);
+        contentStream.showText("Ces voyages s'inscrivent dans le cadre de la cohorte " +
+          candidatures.get(0).getCohorte().getAnnee() +
+          " pour l'année académique " +
+          candidatures.get(0).getCohorte().getAnnee() + ".");
+        contentStream.endText();
+
+        // Article 3 - Prise en charge financière
+        yPosition -= 50;
+        contentStream.beginText();
+        contentStream.setFont(headerFont, 12);
+        contentStream.newLineAtOffset(100, yPosition);
+        contentStream.showText("Article 3 :");
+        contentStream.endText();
+
+        contentStream.beginText();
+        contentStream.setFont(textFont, 12);
+        contentStream.newLineAtOffset(100, yPosition - 20);
+        contentStream.showText("Les frais seront pris en charge conformément aux dispositions budgétaires en vigueur.");
+        contentStream.endText();
+
+        // Article 4 - Rapport de voyage
+        yPosition -= 50;
+        contentStream.beginText();
+        contentStream.setFont(headerFont, 12);
+        contentStream.newLineAtOffset(100, yPosition);
+        contentStream.showText("Article 4 :");
+        contentStream.endText();
+
+        contentStream.beginText();
+        contentStream.setFont(textFont, 12);
+        contentStream.newLineAtOffset(100, yPosition - 20);
+        contentStream.showText("À l'issue de chaque voyage, les enseignants devront remettre un rapport détaillé à la DRC dans un délai de 30 jours.");
+        contentStream.endText();
+
+        // Article 5 - Notification
+        yPosition -= 50;
+        contentStream.beginText();
+        contentStream.setFont(headerFont, 12);
+        contentStream.newLineAtOffset(100, yPosition);
+        contentStream.showText("Article 5 :");
+        contentStream.endText();
+
+        contentStream.beginText();
+        contentStream.setFont(textFont, 12);
+        contentStream.newLineAtOffset(100, yPosition - 20);
+        contentStream.showText("Le présent arrêté sera notifié aux parties concernées.");
+        contentStream.endText();
+
+        // ========== PIED DE PAGE ==========
+        yPosition -= 60;
+        contentStream.beginText();
+        contentStream.setFont(textFont, 12);
+        contentStream.newLineAtOffset(100, yPosition);
+        contentStream.showText("Fait à Ziguinchor, le " + formatDate(LocalDate.now()));
+        contentStream.endText();
+
+        contentStream.beginText();
+        contentStream.newLineAtOffset(100, yPosition - 20);
+        contentStream.showText("Le Directeur des Ressources Humaines,");
+        contentStream.endText();
+
+        contentStream.beginText();
+        contentStream.newLineAtOffset(100, yPosition - 60);
+        contentStream.showText("Dr. [Nom du Directeur]");
+        contentStream.endText();
+
+        contentStream.beginText();
+        contentStream.newLineAtOffset(100, yPosition - 80);
+        contentStream.showText("Signature");
+        contentStream.endText();
+      }
+
+      document.save(outputStream);
+      return outputStream.toByteArray();
+    } catch (IOException e) {
+      throw new RuntimeException("Erreur lors de la génération du PDF", e);
+    }
+  }
+
+  // Méthodes utilitaires
+  private String formatDate(LocalDate date) {
+    return date.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+  }
+
+
+
+  public List<CandidatureDto> getCandidaturesValidesSansArrete() {
+    return candidatureRepository.findByStatut("VALIDÉ").stream()
+      .filter(c -> !documentsRepository.existsByCandidatureIdAndTypeDocumentIn(
+        c.getId(),
+        List.of("ARRETE", "ARRETE_COLLECTIF")))
+      .map(this::mapToDto)
+      .collect(Collectors.toList());
+  }
+
+
 
 }
-

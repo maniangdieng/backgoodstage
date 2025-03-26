@@ -4,9 +4,12 @@
   import com.fasterxml.jackson.databind.ObjectMapper;
   import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
   import gestion_voyage.gestion_voyage.dto.CandidatureDto;
+  import gestion_voyage.gestion_voyage.entity.Candidature;
   import gestion_voyage.gestion_voyage.entity.Cohorte;
   import gestion_voyage.gestion_voyage.entity.Personnel;
   import gestion_voyage.gestion_voyage.entity.Utilisateur;
+  import gestion_voyage.gestion_voyage.mapper.CandidatureMapper;
+  import gestion_voyage.gestion_voyage.repository.CandidatureRepository;
   import gestion_voyage.gestion_voyage.repository.CohorteRepository;
   import gestion_voyage.gestion_voyage.repository.PersonnelRepository;
   import gestion_voyage.gestion_voyage.service.CandidatureService;
@@ -16,10 +19,7 @@
   import org.springframework.core.io.Resource;
   import org.springframework.data.domain.Page;
   import org.springframework.data.domain.Pageable;
-  import org.springframework.http.HttpHeaders;
-  import org.springframework.http.HttpStatus;
-  import org.springframework.http.MediaType;
-  import org.springframework.http.ResponseEntity;
+  import org.springframework.http.*;
   import org.springframework.web.bind.annotation.*;
   import org.springframework.format.annotation.DateTimeFormat;
   import org.springframework.web.multipart.MultipartFile;
@@ -48,7 +48,11 @@
     @Autowired
     private CohorteRepository cohorteRepository;
 
-    // Créer une nouvelle candidature
+      @Autowired
+      private CandidatureRepository candidatureRepository;
+
+
+      // Créer une nouvelle candidature
 
 
       @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -200,14 +204,115 @@
       return ResponseEntity.ok(candidatures);
     }
 
+
+      @PostMapping("/{id}/validate")
+      public ResponseEntity<?> validateCandidature(@PathVariable Long id, @RequestParam(required = false) String commentaire) {
+          try {
+              Candidature candidature = candidatureRepository.findById(id)
+                      .orElseThrow(() -> new RuntimeException("Candidature non trouvée"));
+              if (commentaire != null) {
+                  candidature.setCommentaire(commentaire);
+                  candidatureRepository.save(candidature);
+              }
+              candidatureService.validateCandidature(id);
+              return ResponseEntity.ok("Candidature validée avec succès.");
+          } catch (Exception e) {
+              return ResponseEntity.badRequest().body(e.getMessage());
+          }
+      }
+
+      @PostMapping("/{id}/refuse")
+      public ResponseEntity<?> refuseCandidature(@PathVariable Long id, @RequestParam(required = false) String commentaire) {
+          try {
+              Candidature candidature = candidatureRepository.findById(id)
+                      .orElseThrow(() -> new RuntimeException("Candidature non trouvée"));
+              if (commentaire != null) {
+                  candidature.setCommentaire(commentaire);
+              }
+              candidature.setStatut("REFUSÉ");
+              candidatureRepository.save(candidature);
+              return ResponseEntity.ok("Candidature refusée avec succès.");
+          } catch (Exception e) {
+              return ResponseEntity.badRequest().body(e.getMessage());
+          }
+      }
+
+      @PostMapping(value = "/rapport-voyage", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+      public ResponseEntity<?> submitRapportVoyage(
+              @RequestParam("candidatureId") Long candidatureId,
+              @RequestPart("carteEmbarquement") MultipartFile carteEmbarquement,
+              @RequestPart(value = "justificatifDestination", required = false) MultipartFile justificatifDestination,
+              @RequestPart("rapportVoyage") MultipartFile rapportVoyage) {
+          try {
+              Map<String, MultipartFile> fichiers = new HashMap<>();
+              fichiers.put("carteEmbarquement", carteEmbarquement);
+              if (justificatifDestination != null) {
+                  fichiers.put("justificatifDestination", justificatifDestination);
+              }
+              fichiers.put("rapportVoyage", rapportVoyage);
+
+              candidatureService.submitRapportVoyage(candidatureId, fichiers);
+              return ResponseEntity.ok("Justificatifs et rapport soumis. Voyage terminé.");
+          } catch (Exception e) {
+              return ResponseEntity.badRequest().body("Erreur : " + e.getMessage());
+          }
+      }
+      @PostMapping("/voyage/{voyageId}/update-status")
+      public ResponseEntity<?> updateVoyageStatus(@PathVariable Long voyageId) {
+          try {
+              candidatureService.updateVoyageStatus(voyageId);
+              return ResponseEntity.ok("Statut du voyage mis à jour.");
+          } catch (Exception e) {
+              return ResponseEntity.badRequest().body("Erreur : " + e.getMessage());
+          }
+      }
+
     // Établir un arrêté
     @PostMapping("/{id}/etablir-arrete")
     public ResponseEntity<?> etablirArrete(@PathVariable Long id) {
+        try {
+            candidatureService.etablirArrete(id);
+            Map<String, String> response = new HashMap<>();
+            response.put("message", "Arrêté établi avec succès");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            Map<String, String> errorResponse = new HashMap<>();
+            errorResponse.put("error", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+        }
+    }
+
+      @GetMapping("/{id}/arrete-existe")
+      public ResponseEntity<Boolean> checkArreteExiste(@PathVariable Long id) {
+          boolean arreteExiste = candidatureService.checkArreteExiste(id);
+          return ResponseEntity.ok(arreteExiste);
+      }
+
+      @GetMapping("/{id}/download-arrete")
+      public ResponseEntity<Resource> downloadArrete(@PathVariable Long id) {
+          Resource resource = candidatureService.downloadArrete(id);
+          return ResponseEntity.ok()
+                  .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"arrete_" + id + ".pdf\"")
+                  .contentType(MediaType.APPLICATION_PDF)
+                  .body(resource);
+      }
+
+
+
+    // Établir un arrêté collectif pour plusieurs candidatures
+    @PostMapping("/etablir-arrete-collectif")
+    public ResponseEntity<?> etablirArreteCollectif(@RequestBody List<Long> candidatureIds) {
       try {
-        candidatureServicei.etablirArrete(id);
-        Map<String, String> response = new HashMap<>();
-        response.put("message", "Arrêté établi avec succès");
-        return ResponseEntity.ok(response);
+        byte[] pdfContent = candidatureServicei.etablirArreteCollectif(candidatureIds);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_PDF);
+        headers.setContentDisposition(ContentDisposition.builder("attachment")
+          .filename("arrete_collectif.pdf").build());
+
+        return ResponseEntity.ok()
+          .headers(headers)
+          .body(pdfContent);
       } catch (Exception e) {
         Map<String, String> errorResponse = new HashMap<>();
         errorResponse.put("error", e.getMessage());
@@ -215,23 +320,16 @@
       }
     }
 
-    // Vérifier si un arrêté existe
-    @GetMapping("/{id}/arrete-existe")
-    public ResponseEntity<Boolean> checkArreteExiste(@PathVariable Long id) {
-      boolean arreteExiste = candidatureServicei.checkArreteExiste(id);
-      return ResponseEntity.ok(arreteExiste);
+    // Vérifier quelles candidatures peuvent recevoir un arrêté collectif
+    @Autowired
+    private CandidatureMapper candidatureMapper;
+
+
+    @GetMapping("/candidatures-valides-sans-arrete")
+    public ResponseEntity<List<CandidatureDto>> getCandidaturesValidesSansArrete() {
+      List<CandidatureDto> candidatures = candidatureServicei.getCandidaturesValidesSansArrete();
+      return ResponseEntity.ok(candidatures);
     }
-
-    // Télécharger l'arrêté
-    @GetMapping("/{id}/download-arrete")
-    public ResponseEntity<Resource> downloadArrete(@PathVariable Long id) {
-      Resource resource = candidatureServicei.downloadArrete(id);
-      return ResponseEntity.ok()
-        .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"arrete.pdf\"")
-        .body(resource);
-    }
-
-
 
 
     }
