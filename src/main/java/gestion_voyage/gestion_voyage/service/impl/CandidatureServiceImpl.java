@@ -18,6 +18,8 @@ import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.FileSystemResource;
@@ -38,8 +40,13 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+/**
+ * Implementation of CandidatureService for managing candidatures, voyages, documents, and arretes.
+ */
 @Service
 public class CandidatureServiceImpl implements CandidatureService {
+
+  private static final Logger logger = LoggerFactory.getLogger(CandidatureServiceImpl.class);
 
   @Autowired
   private CandidatureRepository candidatureRepository;
@@ -86,10 +93,36 @@ public class CandidatureServiceImpl implements CandidatureService {
 
     // Vérifier les documents requis
     boolean isNouveau = isEnseignantNouveau(candidatureDto.getPersonnelId());
-    if (isNouveau && (candidatureDto.getFichiers() == null || !candidatureDto.getFichiers().containsKey("arreteTitularisation"))) {
-      throw new RuntimeException("Un arrêté de titularisation est requis pour les nouveaux enseignants.");
-    } else if (!isNouveau && (candidatureDto.getFichiers() == null || !candidatureDto.getFichiers().containsKey("justificatifPrecedentVoyage"))) {
-      throw new RuntimeException("Un justificatif du précédent voyage est requis pour les anciens enseignants.");
+    if (isNouveau) {
+      if (candidatureDto.getFichiers() == null || !candidatureDto.getFichiers().containsKey("arreteTitularisation")) {
+        throw new RuntimeException("Un arrêté de titularisation est requis pour les nouveaux enseignants.");
+      }
+    } else {
+      // Pour les enseignants anciens, vérifier les documents existants ou nouveaux
+      List<String> requiredDocs = List.of("carteEmbarquement", "rapportVoyage");
+      List<Candidature> candidatures = candidatureRepository.findByPersonnelId(candidatureDto.getPersonnelId());
+      Optional<Candidature> lastCompletedCandidature = candidatures.stream()
+              .filter(c -> c.getVoyageEtude() != null && "TERMINÉ".equals(c.getVoyageEtude().getStatut()))
+              .sorted((c1, c2) -> c2.getDateFin().compareTo(c1.getDateFin()))
+              .findFirst();
+
+      if (lastCompletedCandidature.isPresent()) {
+        List<Documents> existingDocs = documentsRepository.findByCandidatureId(lastCompletedCandidature.get().getId());
+        for (String docType : requiredDocs) {
+          boolean hasExistingDoc = existingDocs.stream().anyMatch(doc -> docType.equals(doc.getTypeDocument()));
+          boolean hasNewDoc = candidatureDto.getFichiers() != null && candidatureDto.getFichiers().containsKey(docType);
+          if (!hasExistingDoc && !hasNewDoc) {
+            throw new RuntimeException("Un " + docType + " du précédent voyage est requis pour les anciens enseignants.");
+          }
+        }
+      } else {
+        // Si aucun voyage terminé, exiger les nouveaux documents
+        for (String docType : requiredDocs) {
+          if (candidatureDto.getFichiers() == null || !candidatureDto.getFichiers().containsKey(docType)) {
+            throw new RuntimeException("Un " + docType + " du précédent voyage est requis pour les anciens enseignants.");
+          }
+        }
+      }
     }
 
     // Créer la candidature
@@ -97,14 +130,14 @@ public class CandidatureServiceImpl implements CandidatureService {
     candidature.setDateDepot(candidatureDto.getDateDepot());
     candidature.setDateDebut(candidatureDto.getDateDebut());
     candidature.setDateFin(candidatureDto.getDateFin());
-    candidature.setStatut("EN_ATTENTE"); // Statut initial de la candidature
+    candidature.setStatut("EN_ATTENTE");
     candidature.setDestination(candidatureDto.getDestination());
     candidature.setCohorte(cohorte);
     candidature.setPersonnel(personnel);
 
     Candidature savedCandidature = candidatureRepository.save(candidature);
 
-    // Sauvegarder les fichiers
+    // Sauvegarder les nouveaux fichiers
     if (candidatureDto.getFichiers() != null && !candidatureDto.getFichiers().isEmpty()) {
       for (Map.Entry<String, MultipartFile> entry : candidatureDto.getFichiers().entrySet()) {
         saveDocument(entry.getValue(), entry.getKey(), savedCandidature);
@@ -113,7 +146,6 @@ public class CandidatureServiceImpl implements CandidatureService {
 
     return mapToDto(savedCandidature);
   }
-
   private void checkEligibility(Personnel personnel, Cohorte nouvelleCohorte) {
     List<Candidature> candidatures = candidatureRepository.findByPersonnelId(personnel.getId());
 
@@ -392,7 +424,7 @@ public class CandidatureServiceImpl implements CandidatureService {
   @Override
   public List<CandidatureDto> getCandidaturesByUtilisateur(Long personnelId) {
     return candidatureRepository.findByPersonnelId(personnelId).stream()
-            .map(this::mapToDto) // Utiliser mapToDto au lieu de convertToDto
+            .map(this::mapToDto)
             .collect(Collectors.toList());
   }
 
@@ -406,32 +438,64 @@ public class CandidatureServiceImpl implements CandidatureService {
     return mapToDto(updatedCandidature);
   }
 
+  /**
+   * Updates the status of a candidature based on its start date.
+   * If the current date is equal to or after the start date, the status changes to EN_COURS.
+   * @param candidatureId ID of the candidature
+   * @throws RuntimeException if the candidature is not found
+   */
   @Override
   public void updateCandidatureStatus(Long candidatureId) {
     Candidature candidature = candidatureRepository.findById(candidatureId)
             .orElseThrow(() -> new RuntimeException("Candidature non trouvée"));
 
     LocalDate today = LocalDate.now();
-    if ("EN_ATTENTE".equals(candidature.getStatut()) && today.isEqual(candidature.getDateDebut())) {
+    logger.info("Mise à jour statut candidature ID {}: Statut actuel={}, Date début={}",
+            candidatureId, candidature.getStatut(), candidature.getDateDebut());
+
+    if ("EN_ATTENTE".equals(candidature.getStatut()) &&
+            (today.isEqual(candidature.getDateDebut()) || today.isAfter(candidature.getDateDebut()))) {
       candidature.setStatut("EN_COURS");
       candidatureRepository.save(candidature);
+      logger.info("Candidature ID {} passée à EN_COURS", candidatureId);
+    } else {
+      logger.info("Aucun changement pour candidature ID {}: Condition non remplie", candidatureId);
     }
   }
 
+  /**
+   * Updates the status of a voyage based on its start date.
+   * If the current date is equal to or after the voyage start date, the status changes to EN_COURS.
+   * @param voyageId ID of the voyage
+   * @throws RuntimeException if the voyage is not found
+   */
   @Override
   public void updateVoyageStatus(Long voyageId) {
     VoyageEtude voyage = voyageEtudeRepository.findById(voyageId)
             .orElseThrow(() -> new RuntimeException("Voyage non trouvé"));
 
     LocalDate today = LocalDate.now();
-    if ("EN_ATTENTE".equals(voyage.getStatut()) && today.isEqual(voyage.getDateVoyage())) {
+    logger.info("Mise à jour statut voyage ID {}: Statut actuel={}, Date voyage={}",
+            voyageId, voyage.getStatut(), voyage.getDateVoyage());
+
+    if ("EN_ATTENTE".equals(voyage.getStatut()) &&
+            (today.isEqual(voyage.getDateVoyage()) || today.isAfter(voyage.getDateVoyage()))) {
       voyage.setStatut("EN_COURS");
       voyageEtudeRepository.save(voyage);
+      logger.info("Voyage ID {} passé à EN_COURS", voyageId);
+    } else {
+      logger.info("Aucun changement pour voyage ID {}: Condition non remplie", voyageId);
     }
   }
 
+  /**
+   * Submits voyage report documents and updates the voyage status to TERMINÉ if the return date is reached.
+   * @param candidatureId ID of the candidature
+   * @param fichiers Map of document types and their files
+   * @throws RuntimeException if the candidature or voyage is not found, or if required files are missing
+   */
   @Override
-  public void submitRapportVoyage(Long candidatureId, Map<String, MultipartFile> fichiers) {
+  public Map<String, String> submitRapportVoyage(Long candidatureId, Map<String, MultipartFile> fichiers) {
     Candidature candidature = candidatureRepository.findById(candidatureId)
             .orElseThrow(() -> new RuntimeException("Candidature non trouvée"));
 
@@ -456,25 +520,70 @@ public class CandidatureServiceImpl implements CandidatureService {
     // Mettre à jour le statut du voyage
     voyage.setStatut("TERMINÉ");
     voyageEtudeRepository.save(voyage);
-  }
+    logger.info("Voyage ID {} passé à TERMINÉ après soumission des justificatifs", voyage.getId());
 
-  @Scheduled(cron = "0 0 0 * * *") // Tous les jours à minuit
+    // Retourner une réponse JSON
+    return Map.of("message", "Justificatifs et rapport soumis. Voyage terminé.");
+  }
+  /**
+   * Updates the status of all voyages daily at midnight.
+   * - Changes EN_ATTENTE to EN_COURS if the current date is equal to or after the voyage start date.
+   * - Changes EN_COURS to TERMINÉ if the return date is passed and required documents are submitted.
+   */
+  @Scheduled(cron = "*/30 * * * * *")  // Toutes les 30 secondes
   public void updateAllVoyageStatuses() {
+    logger.info("Début de la mise à jour automatique des statuts des voyages");
     List<VoyageEtude> voyages = voyageEtudeRepository.findAll();
     LocalDate today = LocalDate.now();
 
     for (VoyageEtude voyage : voyages) {
-      if ("EN_ATTENTE".equals(voyage.getStatut()) && today.isEqual(voyage.getDateVoyage())) {
+      logger.info("Vérification voyage ID {}: Statut={}, Date voyage={}, Date retour={}",
+              voyage.getId(), voyage.getStatut(), voyage.getDateVoyage(), voyage.getDateRetour());
+
+      if ("EN_ATTENTE".equals(voyage.getStatut()) &&
+              (today.isEqual(voyage.getDateVoyage()) || today.isAfter(voyage.getDateVoyage()))) {
         voyage.setStatut("EN_COURS");
         voyageEtudeRepository.save(voyage);
+        logger.info("Voyage ID {} passé à EN_COURS", voyage.getId());
+      } else if ("EN_COURS".equals(voyage.getStatut()) &&
+              today.isAfter(voyage.getDateRetour()) &&
+              areDocumentsSubmittedForVoyage(voyage)) {
+        voyage.setStatut("TERMINÉ");
+        voyageEtudeRepository.save(voyage);
+        logger.info("Voyage ID {} passé à TERMINÉ", voyage.getId());
+      } else {
+        logger.info("Aucun changement pour voyage ID {}", voyage.getId());
       }
     }
+    logger.info("Fin de la mise à jour automatique des statuts des voyages");
+  }
+
+  /**
+   * Checks if the required voyage documents (carteEmbarquement and rapportVoyage) are submitted.
+   * @param voyage The voyage to check
+   * @return true if both documents are present, false otherwise
+   */
+  private boolean areDocumentsSubmittedForVoyage(VoyageEtude voyage) {
+    Candidature candidature = candidatureRepository.findByVoyageEtudeId(voyage.getId())
+            .orElse(null);
+    if (candidature == null) {
+      logger.warn("Aucune candidature trouvée pour le voyage ID {}", voyage.getId());
+      return false;
+    }
+    List<Documents> documents = documentsRepository.findByCandidatureId(candidature.getId());
+    boolean hasCarteEmbarquement = documents.stream()
+            .anyMatch(doc -> "carteEmbarquement".equals(doc.getTypeDocument()));
+    boolean hasRapportVoyage = documents.stream()
+            .anyMatch(doc -> "rapportVoyage".equals(doc.getTypeDocument()));
+    logger.info("Voyage ID {}: carteEmbarquement={}, rapportVoyage={}",
+            voyage.getId(), hasCarteEmbarquement, hasRapportVoyage);
+    return hasCarteEmbarquement && hasRapportVoyage;
   }
 
   @Override
   public void etablirArrete(Long candidatureId) {
     try {
-      System.out.println("Tentative d'établir un arrêté pour la candidature : " + candidatureId);
+      logger.info("Tentative d'établir un arrêté pour la candidature : {}", candidatureId);
       Candidature candidature = candidatureRepository.findById(candidatureId)
               .orElseThrow(() -> new RuntimeException("Candidature non trouvée"));
 
@@ -498,16 +607,44 @@ public class CandidatureServiceImpl implements CandidatureService {
       Documents document = new Documents();
       document.setCandidature(candidature);
       document.setNomFichier(fileName);
-      document.setCheminFichier(filePath); // Stocker le chemin au lieu du contenu
+      document.setCheminFichier(filePath);
       document.setTypeDocument("ARRETE");
-      document.setStatut("EN_ATTENTE"); // Statut par défaut
+      document.setStatut("EN_ATTENTE");
       documentsRepository.save(document);
 
-      System.out.println("Arrêté enregistré avec succès pour la candidature : " + candidatureId);
+      logger.info("Arrêté enregistré avec succès pour la candidature : {}", candidatureId);
     } catch (Exception e) {
-      System.err.println("Erreur lors de l'établissement de l'arrêté : " + e.getMessage());
+      logger.error("Erreur lors de l'établissement de l'arrêté : {}", e.getMessage());
       throw new RuntimeException("Erreur lors de l'établissement de l'arrêté : " + e.getMessage());
     }
+  }
+
+  @Override
+  public DocumentsDto getLastVoyageDocument(Long personnelId, String typeDocument) {
+    // Trouver la dernière candidature avec un voyage terminé
+    List<Candidature> candidatures = candidatureRepository.findByPersonnelId(personnelId);
+    Optional<Candidature> lastCompletedCandidature = candidatures.stream()
+            .filter(c -> c.getVoyageEtude() != null && "TERMINÉ".equals(c.getVoyageEtude().getStatut()))
+            .sorted((c1, c2) -> c2.getDateFin().compareTo(c1.getDateFin())) // Trier par date de fin (plus récent d'abord)
+            .findFirst();
+
+    if (lastCompletedCandidature.isEmpty()) {
+      logger.info("Aucun voyage terminé trouvé pour personnelId={}", personnelId);
+      return null;
+    }
+
+    // Récupérer le document du type spécifié
+    List<Documents> documents = documentsRepository.findByCandidatureId(lastCompletedCandidature.get().getId());
+    Optional<Documents> document = documents.stream()
+            .filter(doc -> typeDocument.equals(doc.getTypeDocument()))
+            .findFirst();
+
+    if (document.isEmpty()) {
+      logger.info("Aucun document de type {} trouvé pour candidatureId={}", typeDocument, lastCompletedCandidature.get().getId());
+      return null;
+    }
+
+    return mapToDocumentDto(document.get());
   }
 
   @Override
@@ -538,8 +675,8 @@ public class CandidatureServiceImpl implements CandidatureService {
       document.open();
 
       // Charger le logo
-      Image logo = Image.getInstance("src/main/resources/logouasz.png"); // Chemin vers le logo
-      logo.scaleToFit(100, 100); // Redimensionner le logo
+      Image logo = Image.getInstance("src/main/resources/logouasz.png");
+      logo.scaleToFit(100, 100);
       logo.setAlignment(Element.ALIGN_CENTER);
       document.add(logo);
 
@@ -645,10 +782,9 @@ public class CandidatureServiceImpl implements CandidatureService {
     return outputStream.toByteArray();
   }
 
-
-
+  @Override
   public byte[] etablirArreteCollectif(List<Long> candidatureIds) {
-    // 1. Vérifier que toutes les candidatures sont valides et sans arrêté
+    // Vérifier que toutes les candidatures sont valides et sans arrêté
     List<Candidature> candidatures = candidatureRepository.findAllById(candidatureIds);
 
     if (candidatures.isEmpty()) {
@@ -664,10 +800,10 @@ public class CandidatureServiceImpl implements CandidatureService {
       }
     }
 
-    // 2. Générer le PDF collectif
+    // Générer le PDF collectif
     byte[] pdfContent = generateArreteCollectifPdf(candidatures);
 
-    // 3. Sauvegarder le fichier sur le disque
+    // Sauvegarder le fichier sur le disque
     String fileName = "arrete_collectif_" + System.currentTimeMillis() + ".pdf";
     String filePath = UPLOAD_DIR + fileName;
 
@@ -681,16 +817,15 @@ public class CandidatureServiceImpl implements CandidatureService {
       // Écrire le contenu du PDF dans un fichier
       java.nio.file.Files.write(java.nio.file.Paths.get(filePath), pdfContent);
 
-      // 4. Créer une entrée document pour chaque candidature
+      // Créer une entrée document pour chaque candidature
       for (Candidature candidature : candidatures) {
         Documents document = new Documents();
         document.setNomFichier(fileName);
-        document.setCheminFichier(filePath); // Même chemin pour tous
+        document.setCheminFichier(filePath);
         document.setTypeDocument("ARRETE_COLLECTIF");
         document.setStatut("VALIDÉ");
-        document.setCandidature(candidature); // Lien différent pour chaque candidature
+        document.setCandidature(candidature);
 
-        // Si les candidatures partagent le même voyage d'étude
         if (candidature.getVoyageEtude() != null) {
           document.setVoyageEtude(candidature.getVoyageEtude());
         }
@@ -703,49 +838,43 @@ public class CandidatureServiceImpl implements CandidatureService {
       throw new RuntimeException("Erreur lors de l'enregistrement de l'arrêté collectif", e);
     }
   }
+
   private byte[] generateArreteCollectifPdf(List<Candidature> candidatures) {
     try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
          PDDocument document = new PDDocument()) {
 
       PDPage page = new PDPage(PDRectangle.A4);
       document.addPage(page);
+      PDPageContentStream contentStream = new PDPageContentStream(document, page);
 
-      try (PDPageContentStream contentStream = new PDPageContentStream(document, page)) {
-        // Charger la police (ajoutez vos polices personnalisées si nécessaire)
+      try {
         PDType1Font titleFont = PDType1Font.HELVETICA_BOLD;
         PDType1Font headerFont = PDType1Font.HELVETICA_BOLD;
         PDType1Font textFont = PDType1Font.HELVETICA;
 
-        // ========== EN-TÊTE ==========
-        // Logo (vous devrez charger votre image)
+        // En-tête
+        PDImageXObject logo = PDImageXObject.createFromFile("src/main/resources/logouasz.png", document);
+        contentStream.drawImage(logo, 250, 750, 100, 100);
 
-            PDImageXObject logo = PDImageXObject.createFromFile("src/main/resources/logouasz.png", document);
-            contentStream.drawImage(logo, 250, 750, 100, 100);
-
-
-        // Titre de l'université
         contentStream.beginText();
         contentStream.setFont(titleFont, 18);
         contentStream.newLineAtOffset(100, 750);
         contentStream.showText("Université Assane Seck de Ziguinchor (UASZ)");
         contentStream.endText();
 
-        // Sous-titre DRH
         contentStream.beginText();
         contentStream.setFont(titleFont, 14);
         contentStream.newLineAtOffset(100, 720);
         contentStream.showText("Direction des Ressources Humaines (DRH)");
         contentStream.endText();
 
-        // Référence de l'arrêté
         contentStream.beginText();
         contentStream.setFont(headerFont, 12);
         contentStream.newLineAtOffset(100, 690);
-
+        contentStream.showText("Référence : Arrêté N° 2023/DRH/002");
         contentStream.endText();
 
-        // ========== CORPS DE L'ARRÊTÉ ==========
-        // Préambule
+        // Corps de l'arrêté
         contentStream.beginText();
         contentStream.setFont(textFont, 12);
         contentStream.newLineAtOffset(100, 650);
@@ -796,17 +925,17 @@ public class CandidatureServiceImpl implements CandidatureService {
           contentStream.setFont(textFont, 12);
           contentStream.newLineAtOffset(120, yPosition);
           contentStream.showText("- " + c.getPersonnel().getNom() + " " + c.getPersonnel().getPrenom() +
-            " : " + c.getDestination() +
-            " (" + formatDate(c.getDateDebut()) +
-            " - " + formatDate(c.getDateFin()) + ")");
+                  " : " + c.getDestination() +
+                  " (" + formatDate(c.getDateDebut()) +
+                  " - " + formatDate(c.getDateFin()) + ")");
           contentStream.endText();
           yPosition -= 20;
 
-          if (yPosition < 100) { // Gérer le saut de page si nécessaire
+          if (yPosition < 100) {
             contentStream.close();
             PDPage newPage = new PDPage(PDRectangle.A4);
             document.addPage(newPage);
-
+            contentStream = new PDPageContentStream(document, newPage); // Créer un nouveau content stream
             yPosition = 750;
           }
         }
@@ -823,9 +952,9 @@ public class CandidatureServiceImpl implements CandidatureService {
         contentStream.setFont(textFont, 12);
         contentStream.newLineAtOffset(100, yPosition - 20);
         contentStream.showText("Ces voyages s'inscrivent dans le cadre de la cohorte " +
-          candidatures.get(0).getCohorte().getAnnee() +
-          " pour l'année académique " +
-          candidatures.get(0).getCohorte().getAnnee() + ".");
+                candidatures.get(0).getCohorte().getAnnee() +
+                " pour l'année académique " +
+                candidatures.get(0).getCohorte().getAnnee() + ".");
         contentStream.endText();
 
         // Article 3 - Prise en charge financière
@@ -870,7 +999,7 @@ public class CandidatureServiceImpl implements CandidatureService {
         contentStream.showText("Le présent arrêté sera notifié aux parties concernées.");
         contentStream.endText();
 
-        // ========== PIED DE PAGE ==========
+        // Pied de page
         yPosition -= 60;
         contentStream.beginText();
         contentStream.setFont(textFont, 12);
@@ -892,6 +1021,10 @@ public class CandidatureServiceImpl implements CandidatureService {
         contentStream.newLineAtOffset(100, yPosition - 80);
         contentStream.showText("Signature");
         contentStream.endText();
+
+        contentStream.close();
+      } catch (IOException e) {
+        throw new RuntimeException("Erreur lors de la génération du contenu PDF", e);
       }
 
       document.save(outputStream);
@@ -906,17 +1039,13 @@ public class CandidatureServiceImpl implements CandidatureService {
     return date.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
   }
 
-
-
+  @Override
   public List<CandidatureDto> getCandidaturesValidesSansArrete() {
     return candidatureRepository.findByStatut("VALIDÉ").stream()
-      .filter(c -> !documentsRepository.existsByCandidatureIdAndTypeDocumentIn(
-        c.getId(),
-        List.of("ARRETE", "ARRETE_COLLECTIF")))
-      .map(this::mapToDto)
-      .collect(Collectors.toList());
+            .filter(c -> !documentsRepository.existsByCandidatureIdAndTypeDocumentIn(
+                    c.getId(),
+                    List.of("ARRETE", "ARRETE_COLLECTIF")))
+            .map(this::mapToDto)
+            .collect(Collectors.toList());
   }
-
-
-
 }
